@@ -167,6 +167,8 @@ export const tokenizer = () => `${BASE_URL}/api/tokenizer`;
 
 export const login = () => `${BASE_URL}/api/auth/login`;
 
+export const guestLogin = () => `${BASE_URL}/api/auth/guest`;
+
 export const logout = () => `${BASE_URL}/api/auth/logout`;
 
 export const register = () => `${BASE_URL}/api/auth/register`;

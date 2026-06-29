@@ -12,6 +12,7 @@ import { useRecoilState, useSetRecoilState } from 'recoil';
 import { useNavigate } from 'react-router-dom';
 import {
   apiBaseUrl,
+  dataService,
   SystemRoles,
   setTokenHeader,
   isSystemRoleName,
@@ -21,6 +22,7 @@ import type * as t from 'librechat-data-provider';
 import type { ReactNode } from 'react';
 import {
   useGetRole,
+  useGetStartupConfig,
   useGetUserQuery,
   useLoginUserMutation,
   useLogoutUserMutation,
@@ -154,6 +156,11 @@ const AuthContextProvider = ({
     },
   });
   const refreshToken = useRefreshTokenMutation();
+  const silentRefreshStarted = useRef(false);
+  const guestLoginAttempted = useRef(false);
+  const { data: startupConfig } = useGetStartupConfig({
+    enabled: !isAuthenticated,
+  });
 
   const logout = useCallback(
     (redirect?: string) => {
@@ -171,6 +178,34 @@ const AuthContextProvider = ({
     loginUser.mutate(data);
   };
 
+  const loginAsGuest = useCallback(() => {
+    guestLoginAttempted.current = true;
+    dataService
+      .guestLogin()
+      .then((data) => {
+        const { user, token } = data;
+        setUserContext({ user, token, isAuthenticated: true, redirect: '/c/new' });
+      })
+      .catch((guestError) => {
+        console.log('guestLogin error:', guestError);
+        navigate(buildLoginRedirectUrl());
+      });
+  }, [navigate, setUserContext]);
+
+  const handleMissingAuthToken = useCallback(() => {
+    if (authConfig?.test === true) {
+      return;
+    }
+    if (!startupConfig) {
+      return;
+    }
+    if (startupConfig.guestLoginEnabled === true && !guestLoginAttempted.current) {
+      loginAsGuest();
+      return;
+    }
+    navigate(buildLoginRedirectUrl());
+  }, [authConfig?.test, loginAsGuest, navigate, startupConfig]);
+
   const silentRefresh = useCallback(() => {
     if (authConfig?.test === true) {
       console.log('Test mode. Skipping silent refresh.');
@@ -179,6 +214,10 @@ const AuthContextProvider = ({
     if (isExternalRedirectRef.current) {
       return;
     }
+    if (silentRefreshStarted.current) {
+      return;
+    }
+    silentRefreshStarted.current = true;
     refreshToken.mutate(undefined, {
       onSuccess: (data: t.TRefreshTokenResponse | undefined) => {
         if (isExternalRedirectRef.current) {
@@ -202,24 +241,20 @@ const AuthContextProvider = ({
           return;
         }
         console.log('Token is not present. User is not authenticated.');
-        if (authConfig?.test === true) {
-          return;
-        }
-        navigate(buildLoginRedirectUrl());
+        silentRefreshStarted.current = false;
+        handleMissingAuthToken();
       },
       onError: (error) => {
         if (isExternalRedirectRef.current) {
           return;
         }
         console.log('refreshToken mutation error:', error);
-        if (authConfig?.test === true) {
-          return;
-        }
-        navigate(buildLoginRedirectUrl());
+        silentRefreshStarted.current = false;
+        handleMissingAuthToken();
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are stable at mount; adding refreshToken causes infinite re-fire
-  }, []);
+  }, [handleMissingAuthToken, setUserContext]);
 
   useEffect(() => {
     if (isExternalRedirectRef.current) {

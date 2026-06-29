@@ -26,6 +26,10 @@ const {
 } = require('~/models');
 const { getGraphApiToken } = require('~/server/services/GraphTokenService');
 const { getOpenIdConfig, getOpenIdEmail } = require('~/strategies');
+const {
+  getGuestUser,
+  sanitizeUser: sanitizeGuestUser,
+} = require('~/server/controllers/auth/GuestController');
 
 const AUTH_REFRESH_USER_PROJECTION = '-password -__v -totpSecret -backupCodes -federatedTokens';
 const OPENID_REUSE_EXPIRY_BUFFER_SECONDS = 30;
@@ -64,6 +68,23 @@ const sanitizeUserForAuthResponse = (user) => {
     ...safeUser
   } = source;
   return safeUser;
+};
+
+const tryGuestRefresh = async (req, res) => {
+  if (!process.env.ALLOW_GUEST_LOGIN || !isEnabled(process.env.ALLOW_GUEST_LOGIN)) {
+    return false;
+  }
+
+  try {
+    const user = await getGuestUser();
+    const token = await setAuthTokens(user._id, res, null, req);
+    res.status(200).send({ token, user: sanitizeGuestUser(user) });
+  } catch (err) {
+    logger.error('[refreshController] Guest refresh error', err);
+    res.status(500).send({ message: 'Something went wrong' });
+  }
+
+  return true;
 };
 
 const getValidOpenIDReuseUserId = (parsedCookies) => {
@@ -161,6 +182,9 @@ const refreshController = async (req, res) => {
     const refreshToken = req.session?.openidTokens?.refreshToken || parsedCookies.refreshToken;
 
     if (!refreshToken) {
+      if (await tryGuestRefresh(req, res)) {
+        return;
+      }
       return res.status(200).send('Refresh token not provided');
     }
 
@@ -258,6 +282,9 @@ const refreshController = async (req, res) => {
   /** For non-OpenID users, read refresh token from cookies */
   const refreshToken = parsedCookies.refreshToken;
   if (!refreshToken) {
+    if (await tryGuestRefresh(req, res)) {
+      return;
+    }
     return res.status(200).send('Refresh token not provided');
   }
 
