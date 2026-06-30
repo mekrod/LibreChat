@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -9,10 +9,19 @@ import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
 import { CodeBlockProvider, ArtifactProvider } from '~/Providers';
 import MarkdownErrorBoundary from './MarkdownErrorBoundary';
+import MiniAppOpenAction from '~/components/MiniApps/MiniAppOpenAction';
+import { parseAnyMiniAppBundle } from '~/components/MiniApps/runtime';
 import { langSubset, remarkApproxTilde } from '~/utils';
 
 const MarkdownLite = memo(
   ({ content = '', codeExecution = true }: { content?: string; codeExecution?: boolean }) => {
+    const miniAppBundle = useMemo(() => {
+      try {
+        return parseAnyMiniAppBundle(content);
+      } catch {
+        return null;
+      }
+    }, [content]);
     const rehypePlugins: PluggableList = [
       [rehypeKatex],
       [
@@ -29,30 +38,34 @@ const MarkdownLite = memo(
       <MarkdownErrorBoundary content={content} codeExecution={codeExecution}>
         <ArtifactProvider>
           <CodeBlockProvider>
-            <ReactMarkdown
-              remarkPlugins={[
-                remarkApproxTilde,
+            {miniAppBundle ? (
+              <MiniAppOpenAction text={content} />
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkApproxTilde,
+                  /** @ts-ignore */
+                  supersub,
+                  remarkGfm,
+                  [remarkMath, { singleDollarTextMath: false }],
+                ]}
                 /** @ts-ignore */
-                supersub,
-                remarkGfm,
-                [remarkMath, { singleDollarTextMath: false }],
-              ]}
-              /** @ts-ignore */
-              rehypePlugins={rehypePlugins}
-              components={
-                {
-                  code: codeExecution ? code : codeNoExecution,
-                  a,
-                  p,
-                  img,
-                  table,
-                } as {
-                  [nodeType: string]: React.ElementType;
+                rehypePlugins={rehypePlugins}
+                components={
+                  {
+                    code: codeExecution ? code : codeNoExecution,
+                    a,
+                    p,
+                    img,
+                    table,
+                  } as {
+                    [nodeType: string]: React.ElementType;
+                  }
                 }
-              }
-            >
-              {content}
-            </ReactMarkdown>
+              >
+                {content}
+              </ReactMarkdown>
+            )}
           </CodeBlockProvider>
         </ArtifactProvider>
       </MarkdownErrorBoundary>

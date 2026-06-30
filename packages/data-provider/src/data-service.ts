@@ -11,6 +11,7 @@ import * as ag from './types/agents';
 import * as q from './types/queries';
 import * as sk from './types/skills';
 import * as f from './types/files';
+import * as ma from './types/miniapps';
 import * as config from './config';
 import request from './request';
 import * as s from './schemas';
@@ -863,6 +864,52 @@ export function assignConversationToProject(
 ): Promise<t.TAssignConversationToProjectResponse> {
   const { conversationId, projectId } = payload;
   return request.put(endpoints.projectConversation(conversationId), { projectId });
+}
+
+export function listMiniApps(params?: ma.TMiniAppListRequest): Promise<ma.TMiniAppListResponse> {
+  return request.get(endpoints.miniApps(params ?? {}));
+}
+
+type MiniAppCreateWirePayload = Omit<ma.TCreateMiniAppRequest, 'files'> & {
+  files: ma.MiniAppStoredFile[];
+};
+
+type MiniAppUpdateWirePayload = Omit<ma.TUpdateMiniAppRequest, 'files'> & {
+  files?: ma.MiniAppStoredFile[];
+};
+
+function toMiniAppFileList(files: ma.MiniAppFileInput): ma.MiniAppStoredFile[] {
+  return Array.isArray(files)
+    ? files
+    : Object.entries(files).map(([path, content]) => ({ path, content }));
+}
+
+function toMiniAppCreatePayload(payload: ma.TCreateMiniAppRequest): MiniAppCreateWirePayload {
+  return {
+    ...payload,
+    files: toMiniAppFileList(payload.files),
+  };
+}
+
+function toMiniAppUpdatePayload(payload: ma.TUpdateMiniAppRequest): MiniAppUpdateWirePayload {
+  const { files, ...rest } = payload;
+  return files === undefined ? rest : { ...rest, files: toMiniAppFileList(files) };
+}
+
+export function createMiniApp(payload: ma.TCreateMiniAppRequest): Promise<ma.TMiniApp> {
+  return request.post(endpoints.miniApps(), toMiniAppCreatePayload(payload));
+}
+
+export function getMiniAppById(id: string): Promise<ma.TMiniApp> {
+  return request.get(endpoints.miniAppById(id));
+}
+
+export function updateMiniApp(id: string, payload: ma.TUpdateMiniAppRequest): Promise<ma.TMiniApp> {
+  return request.patch(endpoints.miniAppById(id), toMiniAppUpdatePayload(payload));
+}
+
+export function deleteMiniApp(id: string): Promise<ma.TDeleteMiniAppResponse> {
+  return request.delete(endpoints.miniAppById(id));
 }
 
 export function pinConversation(

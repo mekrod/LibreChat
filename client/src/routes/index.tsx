@@ -46,6 +46,11 @@ const loadProjectsView = () =>
     Component: m.ProjectsView,
   }));
 
+const loadMiniAppsView = () =>
+  import('~/components/MiniApps').then((m) => ({
+    Component: m.MiniAppsView,
+  }));
+
 const loadProjectWorkspace = () =>
   import('~/components/Projects').then((m) => ({
     Component: m.ProjectWorkspace,
@@ -169,6 +174,14 @@ export const router = createBrowserRouter(
             {
               path: 'projects/:projectId',
               lazy: loadProjectWorkspace,
+            },
+            {
+              path: 'mini-apps',
+              lazy: loadMiniAppsView,
+            },
+            {
+              path: 'mini-apps/:miniAppId',
+              lazy: loadMiniAppsView,
             },
             {
               path: 'agents',

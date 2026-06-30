@@ -51,7 +51,7 @@ import {
   isFileAuthoringToolDefinition,
 } from './tools';
 import { filterFilesByEndpointConfig } from '~/files';
-import { generateArtifactsPrompt } from '~/prompts';
+import { generateArtifactsPrompt, miniAppsPrompt } from '~/prompts';
 import { getProviderConfig } from '~/endpoints';
 import { primeResources } from './resources';
 
@@ -1165,6 +1165,7 @@ export async function initializeAgent(
     });
     appendAdditionalInstructions(agent, artifactsPromptResult);
   }
+  appendAdditionalInstructions(agent, miniAppsPrompt);
 
   let skillCount = 0;
   /**

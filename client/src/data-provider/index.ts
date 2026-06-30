@@ -6,6 +6,7 @@ export * from './Files';
 /* Memories */
 export * from './Memories';
 export * from './Messages';
+export * from './MiniApps';
 export * from './Misc';
 export * from './Projects';
 export * from './Tools';

@@ -3,17 +3,25 @@ import { useRecoilValue } from 'recoil';
 import { getRemarkPlugins, getRehypePlugins, getMarkdownComponents } from './markdownConfig';
 import MarkdownErrorBoundary from './MarkdownErrorBoundary';
 import MarkdownBlocks from './MarkdownBlocks';
+import MiniAppOpenAction from '~/components/MiniApps/MiniAppOpenAction';
+import { parseAnyMiniAppBundle } from '~/components/MiniApps/runtime';
 import { preprocessLaTeX } from '~/utils';
 import store from '~/store';
 
 type TContentProps = {
   content: string;
   isLatestMessage: boolean;
+  isSubmitting?: boolean;
 };
 
-const Markdown = memo(function Markdown({ content = '', isLatestMessage }: TContentProps) {
+const Markdown = memo(function Markdown({
+  content = '',
+  isLatestMessage,
+  isSubmitting = false,
+}: TContentProps) {
   const LaTeXParsing = useRecoilValue<boolean>(store.LaTeXParsing);
   const isInitializing = content === '';
+  const isStreamingLatestMessage = isLatestMessage && isSubmitting;
 
   const currentContent = useMemo(() => {
     if (isInitializing) {
@@ -21,6 +29,16 @@ const Markdown = memo(function Markdown({ content = '', isLatestMessage }: TCont
     }
     return LaTeXParsing ? preprocessLaTeX(content) : content;
   }, [content, LaTeXParsing, isInitializing]);
+  const miniAppBundle = useMemo(() => {
+    if (isStreamingLatestMessage) {
+      return null;
+    }
+    try {
+      return parseAnyMiniAppBundle(content);
+    } catch {
+      return null;
+    }
+  }, [content, isStreamingLatestMessage]);
 
   if (isInitializing) {
     return (
@@ -34,12 +52,16 @@ const Markdown = memo(function Markdown({ content = '', isLatestMessage }: TCont
 
   return (
     <MarkdownErrorBoundary content={content} codeExecution={true}>
-      <MarkdownBlocks
-        content={currentContent}
-        remarkPlugins={getRemarkPlugins()}
-        rehypePlugins={getRehypePlugins()}
-        components={getMarkdownComponents()}
-      />
+      {miniAppBundle ? (
+        <MiniAppOpenAction text={content} />
+      ) : (
+        <MarkdownBlocks
+          content={currentContent}
+          remarkPlugins={getRemarkPlugins()}
+          rehypePlugins={getRehypePlugins()}
+          components={getMarkdownComponents()}
+        />
+      )}
     </MarkdownErrorBoundary>
   );
 });

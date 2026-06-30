@@ -146,6 +146,14 @@ export const projectById = (id: string) => `${projectsRoot}/${encodeURIComponent
 export const projectConversation = (conversationId: string) =>
   `${projectsRoot}/conversations/${encodeURIComponent(conversationId)}`;
 
+export const miniAppsRoot = `${BASE_URL}/api/mini-apps`;
+
+export const miniApps = (params: q.MiniAppListParams = {}) => {
+  return `${miniAppsRoot}${buildQuery(params)}`;
+};
+
+export const miniAppById = (id: string) => `${miniAppsRoot}/${encodeURIComponent(id)}`;
+
 export const search = (q: string, cursor?: string | null) =>
   `${BASE_URL}/api/search?q=${q}${cursor ? `&cursor=${cursor}` : ''}`;
 

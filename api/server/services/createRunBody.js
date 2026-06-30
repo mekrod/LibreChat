@@ -1,3 +1,5 @@
+const miniAppsPrompt = require('~/app/clients/prompts/miniapps');
+
 /**
  * Obtains the date string in 'YYYY-MM-DD' format.
  *
@@ -63,6 +65,8 @@ const createRunBody = ({
   if (typeof endpointOption?.artifactsPrompt === 'string' && endpointOption.artifactsPrompt) {
     systemInstructions += `\n${endpointOption.artifactsPrompt}`;
   }
+
+  systemInstructions += `\n${miniAppsPrompt}`;
 
   if (systemInstructions.trim()) {
     body.additional_instructions = systemInstructions.trim();

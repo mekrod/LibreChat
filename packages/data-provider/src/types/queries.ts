@@ -53,6 +53,12 @@ export type ProjectListResponse = {
 
 export type ProjectData = InfiniteData<ProjectListResponse>;
 
+export type MiniAppListParams = {
+  cursor?: string;
+  limit?: number;
+  search?: string;
+};
+
 /* Messages */
 export type MessagesListParams = {
   cursor?: string | null;
