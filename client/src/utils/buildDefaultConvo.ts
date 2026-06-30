@@ -8,6 +8,7 @@ import {
 import type { TConversation, EndpointSchemaKey } from 'librechat-data-provider';
 import { clearModelForNonEphemeralAgent } from './endpoints';
 import { getLocalStorageItems } from './localStorage';
+import { browserLocalEndpoint, browserLocalModel } from './browserLocal';
 
 const buildDefaultConvo = ({
   models,
@@ -18,7 +19,7 @@ const buildDefaultConvo = ({
 }: {
   models: string[];
   conversation: TConversation;
-  endpoint?: EModelEndpoint | null;
+  endpoint?: EModelEndpoint | string | null;
   lastConversationSetup: TConversation | null;
   defaultParamsEndpoint?: string | null;
 }): TConversation => {
@@ -29,12 +30,27 @@ const buildDefaultConvo = ({
     return {
       ...conversation,
       endpointType,
-      endpoint,
+      endpoint: endpoint as EModelEndpoint | null,
     };
   }
 
-  const availableModels = models;
+  const availableModels = endpoint === browserLocalEndpoint ? [browserLocalModel] : models;
   const model = lastConversationSetup?.model ?? lastSelectedModel?.[endpoint] ?? '';
+
+  if (endpoint === browserLocalEndpoint) {
+    return {
+      ...conversation,
+      endpoint: endpoint as EModelEndpoint,
+      endpointType: undefined,
+      assistant_id: undefined,
+      agent_id: undefined,
+      model: browserLocalModel,
+      spec: null,
+      iconURL: null,
+      modelLabel: null,
+      tools: lastConversationSetup?.tools ?? lastSelectedTools ?? conversation.tools,
+    };
+  }
 
   let possibleModels: string[];
 
@@ -58,7 +74,7 @@ const buildDefaultConvo = ({
     ...conversation,
     ...convo,
     endpointType,
-    endpoint,
+    endpoint: endpoint as EModelEndpoint,
   };
 
   // Ensures assistant_id is always defined

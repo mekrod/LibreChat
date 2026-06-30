@@ -5,6 +5,7 @@ import type { UseQueryOptions, QueryObserverResult, QueryClient } from '@tanstac
 import { Constants, QueryKeys, dataService } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import { isNotFoundError, logger } from '~/utils';
+import { getBrowserLocalMessages } from '~/utils/browserLocalStore';
 
 type StableMessagesParams = {
   pathname: string;
@@ -99,6 +100,11 @@ export const useGetMessagesByConvoId = <TData = t.TMessage[]>(
   return useQuery<t.TMessage[], unknown, TData>(
     [QueryKeys.messages, id],
     async () => {
+      const browserLocalMessages = getBrowserLocalMessages(id);
+      if (browserLocalMessages) {
+        return browserLocalMessages;
+      }
+
       let result: t.TMessage[];
       try {
         result = await dataService.getMessagesByConvoId(id);

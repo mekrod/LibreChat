@@ -238,6 +238,8 @@
   "com_endpoint_assistant": "Assistant",
   "com_endpoint_assistant_model": "Assistant Model",
   "com_endpoint_assistant_placeholder": "Please select an Assistant from the right-hand Side Panel",
+  "com_endpoint_browser_local": "Browser Local",
+  "com_endpoint_browser_local_gemma": "Gemma 4 E2B",
   "com_endpoint_bedrock_reasoning_effort": "Controls the reasoning level for supported Bedrock models (e.g. Kimi K2.5, GLM). Higher levels produce more thorough reasoning at the cost of increased latency and tokens.",
   "com_endpoint_config_bedrock_access_key_id": "AWS Access Key ID",
   "com_endpoint_config_bedrock_bearer_token": "AWS Bedrock API Key",

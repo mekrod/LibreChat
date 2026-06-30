@@ -24,6 +24,7 @@ import {
 } from '~/utils';
 import { useApplyModelSpecEffects } from '~/hooks/Agents';
 import { startupConfigKey } from '~/data-provider';
+import { getBrowserLocalConversation } from '~/utils/browserLocalStore';
 import store from '~/store';
 
 const useNavigateToConvo = (index = 0) => {
@@ -57,6 +58,13 @@ const useNavigateToConvo = (index = 0) => {
       return;
     }
     try {
+      const browserLocalConversation = getBrowserLocalConversation(conversationId);
+      if (browserLocalConversation) {
+        setConversation(browserLocalConversation);
+        navigate(`/c/${conversationId}`, { state: { focusChat: true } });
+        return;
+      }
+
       const data = await queryClient.fetchQuery([QueryKeys.conversation, conversationId], () =>
         dataService.getConversationById(conversationId),
       );

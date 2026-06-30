@@ -2,6 +2,8 @@ import { isAssistantsEndpoint } from 'librechat-data-provider';
 import type { TSubmission } from 'librechat-data-provider';
 import type { EventHandlerParams } from './useEventHandlers';
 import useResumableSSE from './useResumableSSE';
+import useBrowserLocalSSE from './useBrowserLocalSSE';
+import { isBrowserLocalEndpoint } from '~/utils/browserLocal';
 import useSSE from './useSSE';
 
 type ChatHelpers = Pick<
@@ -25,10 +27,17 @@ export default function useAdaptiveSSE(
   const endpoint = submission?.conversation?.endpoint;
   const endpointType = submission?.conversation?.endpointType;
   const actualEndpoint = endpointType ?? endpoint;
+  const isBrowserLocal = isBrowserLocalEndpoint(endpoint);
   const isAssistants = isAssistantsEndpoint(actualEndpoint);
-  const resumableEnabled = !isAssistants;
+  const resumableEnabled = !isAssistants && !isBrowserLocal;
 
-  useSSE(resumableEnabled ? null : submission, chatHelpers, isAddedRequest, runIndex);
+  useBrowserLocalSSE(isBrowserLocal ? submission : null, chatHelpers, runIndex);
+  useSSE(
+    !resumableEnabled && !isBrowserLocal ? submission : null,
+    chatHelpers,
+    isAddedRequest,
+    runIndex,
+  );
 
   const { streamId } = useResumableSSE(
     resumableEnabled ? submission : null,

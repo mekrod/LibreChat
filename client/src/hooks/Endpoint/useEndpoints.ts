@@ -16,9 +16,10 @@ import type {
   Agent,
 } from 'librechat-data-provider';
 import type { Endpoint } from '~/common';
-import { useHasAccess, useShowMarketplace } from '~/hooks';
+import { useHasAccess, useLocalize, useShowMarketplace } from '~/hooks';
 import { useGetEndpointsQuery } from '~/data-provider';
 import { mapEndpoints, getIconKey } from '~/utils';
+import { browserLocalModel, isBrowserLocalEndpoint } from '~/utils/browserLocal';
 import { icons } from './Icons';
 
 const defaultInterface = getConfigDefaults().interface;
@@ -35,6 +36,7 @@ export const useEndpoints = ({
   startupConfig: TStartupConfig | undefined;
 }) => {
   const modelsQuery = useGetModelsQuery();
+  const localize = useLocalize();
   const { data: endpoints = [] } = useGetEndpointsQuery({ select: mapEndpoints });
   const interfaceConfig = startupConfig?.interface ?? defaultInterface;
   const includedEndpoints = useMemo(
@@ -67,7 +69,11 @@ export const useEndpoints = ({
       if (endpoints[i] === EModelEndpoint.agents && !hasAgentAccess) {
         continue;
       }
-      if (includedEndpoints.size > 0 && !includedEndpoints.has(endpoints[i])) {
+      if (
+        includedEndpoints.size > 0 &&
+        !includedEndpoints.has(endpoints[i]) &&
+        !isBrowserLocalEndpoint(endpoints[i])
+      ) {
         continue;
       }
       result.push(endpoints[i]);
@@ -90,6 +96,7 @@ export const useEndpoints = ({
       const Icon = icons[iconKey];
       const endpointIconURL = getEndpointField(endpointsConfig, ep, 'iconURL');
       const hasModels =
+        isBrowserLocalEndpoint(ep) ||
         (ep === EModelEndpoint.agents && ((agents?.length ?? 0) > 0 || showAgentMarketplace)) ||
         (ep === EModelEndpoint.assistants && assistants?.length > 0) ||
         (ep !== EModelEndpoint.assistants &&
@@ -103,7 +110,9 @@ export const useEndpoints = ({
       // Base result object with formatted default icon
       const result: Endpoint = {
         value: ep,
-        label: alternateName[ep] || ep,
+        label: isBrowserLocalEndpoint(ep)
+          ? localize('com_endpoint_browser_local')
+          : getEndpointField(endpointsConfig, ep, 'name') || alternateName[ep] || ep,
         hasModels,
         icon: Icon
           ? React.createElement(Icon, {
@@ -114,6 +123,10 @@ export const useEndpoints = ({
             })
           : null,
       };
+
+      if (isBrowserLocalEndpoint(ep)) {
+        result.models = [{ name: browserLocalModel, isGlobal: true }];
+      }
 
       if (ep === EModelEndpoint.agents && showAgentMarketplace) {
         result.showMarketplace = true;
@@ -198,6 +211,7 @@ export const useEndpoints = ({
     azureAssistants,
     endpointsConfig,
     filteredEndpoints,
+    localize,
     modelsQuery.data,
     showAgentMarketplace,
   ]);

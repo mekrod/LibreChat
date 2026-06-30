@@ -4,6 +4,7 @@ import { QueryKeys, dataService } from 'librechat-data-provider';
 import type { QueryObserverResult, UseQueryOptions } from '@tanstack/react-query';
 import type t from 'librechat-data-provider';
 import store from '~/store';
+import { withBrowserLocalEndpoint } from '~/utils/browserLocal';
 
 export const useGetEndpointsQuery = <TData = t.TEndpointsConfig>(
   config?: UseQueryOptions<t.TEndpointsConfig, unknown, TData>,
@@ -11,7 +12,7 @@ export const useGetEndpointsQuery = <TData = t.TEndpointsConfig>(
   const queriesEnabled = useRecoilValue<boolean>(store.queriesEnabled);
   return useQuery<t.TEndpointsConfig, unknown, TData>(
     [QueryKeys.endpoints],
-    () => dataService.getAIEndpoints(),
+    async () => withBrowserLocalEndpoint(await dataService.getAIEndpoints()),
     {
       staleTime: Infinity,
       refetchOnWindowFocus: false,

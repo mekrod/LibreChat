@@ -32,6 +32,10 @@ import type {
 } from 'librechat-data-provider';
 import type { ConversationCursorData } from '~/utils/convos';
 import { findConversationInInfinite, isNotFoundError } from '~/utils';
+import {
+  getBrowserLocalConversation,
+  listBrowserLocalConversations,
+} from '~/utils/browserLocalStore';
 
 export const useGetPresetsQuery = (
   config?: UseQueryOptions<TPreset[]>,
@@ -54,6 +58,11 @@ export const useGetConvoIdQuery = (
   return useQuery<t.TConversation>(
     [QueryKeys.conversation, id],
     () => {
+      const browserLocalConversation = getBrowserLocalConversation(id);
+      if (browserLocalConversation) {
+        return browserLocalConversation;
+      }
+
       // Try to find in all fetched infinite pages
       const convosQuery = queryClient.getQueryData<InfiniteData<ConversationCursorData>>(
         [QueryKeys.allConversations],
@@ -93,8 +102,8 @@ export const useConversationsInfiniteQuery = (
       isArchived ? QueryKeys.archivedConversations : QueryKeys.allConversations,
       { isArchived, sortBy, sortDirection, tags, search, projectId },
     ],
-    queryFn: ({ pageParam }) =>
-      dataService.listConversations({
+    queryFn: async ({ pageParam }) => {
+      const response = await dataService.listConversations({
         isArchived,
         sortBy,
         sortDirection,
@@ -102,7 +111,38 @@ export const useConversationsInfiniteQuery = (
         search,
         projectId,
         cursor: pageParam?.toString(),
-      }),
+      });
+
+      const includeBrowserLocal =
+        !pageParam && !isArchived && !search && (!Array.isArray(tags) || tags.length === 0);
+      if (!includeBrowserLocal) {
+        return response;
+      }
+
+      const browserLocalConversations = listBrowserLocalConversations().filter((conversation) => {
+        if (projectId == null) {
+          return conversation.chatProjectId == null;
+        }
+        return conversation.chatProjectId === projectId;
+      });
+
+      if (browserLocalConversations.length === 0) {
+        return response;
+      }
+
+      const existingIds = new Set(
+        response.conversations.map((conversation) => conversation.conversationId),
+      );
+      return {
+        ...response,
+        conversations: [
+          ...browserLocalConversations.filter(
+            (conversation) => !existingIds.has(conversation.conversationId),
+          ),
+          ...response.conversations,
+        ],
+      };
+    },
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
     keepPreviousData: true,
     staleTime: 5 * 60 * 1000, // 5 minutes

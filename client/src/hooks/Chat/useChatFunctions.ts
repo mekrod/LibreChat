@@ -38,6 +38,7 @@ import useGetSender from '~/hooks/Conversations/useGetSender';
 import store, { useGetEphemeralAgent } from '~/store';
 import { startupConfigKey } from '~/data-provider';
 import useUserKey from '~/hooks/Input/useUserKey';
+import { browserLocalModel, isBrowserLocalEndpoint } from '~/utils/browserLocal';
 import { useAuthContext } from '~/hooks';
 
 const logChatRequest = (request: Record<string, unknown>) => {
@@ -77,6 +78,7 @@ const hasPendingAssistantParent = (message: TMessage | null) =>
   message.messageId.endsWith('_') &&
   message.createdAt == null &&
   message.updatedAt == null &&
+  message.unfinished !== false &&
   !hasStreamStartFailed(message);
 
 type RegenerateTargetResponseArgs = {
@@ -295,6 +297,7 @@ export default function useChatFunctions({
       console.error('No endpoint available');
       return;
     }
+    const isBrowserLocal = isBrowserLocalEndpoint(endpoint);
 
     conversationId = conversationId ?? conversation?.conversationId ?? null;
     if (conversationId == 'search') {
@@ -428,12 +431,19 @@ export default function useChatFunctions({
     const defaultParamsEndpoint = getDefaultParamsEndpoint(endpointsConfig, endpoint);
 
     /** This becomes part of the `endpointOption` */
-    const convo = parseCompactConvo({
-      endpoint: endpoint as EndpointSchemaKey,
-      endpointType: endpointType as EndpointSchemaKey,
-      conversation: conversationForPayload,
-      defaultParamsEndpoint,
-    });
+    const convo = isBrowserLocal
+      ? ({
+          ...conversationForPayload,
+          endpoint: endpoint as EndpointSchemaKey,
+          endpointType: undefined,
+          model: conversation?.model || browserLocalModel,
+        } as Omit<TConversation, 'iconURL'>)
+      : parseCompactConvo({
+          endpoint: endpoint as EndpointSchemaKey,
+          endpointType: endpointType as EndpointSchemaKey,
+          conversation: conversationForPayload,
+          defaultParamsEndpoint,
+        });
 
     const { modelDisplayLabel } = endpointsConfig?.[endpoint ?? ''] ?? {};
     const endpointOption = Object.assign(
@@ -446,14 +456,20 @@ export default function useChatFunctions({
       convo,
       chatProjectId ? { chatProjectId } : {},
     ) as TEndpointOption;
-    if (endpoint !== EModelEndpoint.agents) {
+    if (isBrowserLocal) {
+      endpointOption.key = 'never';
+      endpointOption.thread_id = thread_id;
+      endpointOption.modelDisplayLabel = 'Gemma 4 E2B';
+    } else if (endpoint !== EModelEndpoint.agents) {
       endpointOption.key = getExpiry();
       endpointOption.thread_id = thread_id;
       endpointOption.modelDisplayLabel = modelDisplayLabel;
     } else {
       endpointOption.key = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     }
-    const responseSender = getSender({ model: conversation?.model, ...endpointOption });
+    const responseSender = isBrowserLocal
+      ? 'Gemma'
+      : getSender({ model: conversation?.model, ...endpointOption });
 
     const currentMsg: TMessage = {
       text,
@@ -539,7 +555,18 @@ export default function useChatFunctions({
       manualSkills: manualSkills.length > 0 ? manualSkills : undefined,
     };
 
-    if (isAssistantsEndpoint(endpoint)) {
+    if (isBrowserLocal) {
+      initialResponse.model = browserLocalModel;
+      initialResponse.text = '';
+      initialResponse.content = [
+        {
+          type: ContentTypes.TEXT,
+          [ContentTypes.TEXT]: '',
+        },
+      ];
+      setIsSubmitting(true);
+      setShowStopButton(true);
+    } else if (isAssistantsEndpoint(endpoint)) {
       initialResponse.model = conversation?.assistant_id ?? '';
       initialResponse.text = '';
       initialResponse.content = [

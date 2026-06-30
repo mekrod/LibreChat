@@ -6,6 +6,7 @@ import type { Endpoint } from '~/common';
 import { useFavorites, useLocalize, useIsActiveItem } from '~/hooks';
 import { useModelSelectorContext } from '../ModelSelectorContext';
 import { CustomMenuItem as MenuItem } from '../CustomMenu';
+import { browserLocalModel, isBrowserLocalEndpoint } from '~/utils/browserLocal';
 import { cn } from '~/utils';
 
 interface EndpointModelItemProps {
@@ -45,6 +46,8 @@ export function EndpointModelItem({ modelId, endpoint }: EndpointModelItemProps)
     endpoint.assistantNames?.[modelId]
   ) {
     modelName = endpoint.assistantNames[modelId];
+  } else if (endpoint && modelId === browserLocalModel && isBrowserLocalEndpoint(endpoint.value)) {
+    modelName = localize('com_endpoint_browser_local_gemma');
   }
 
   const isAgent = isAgentsEndpoint(endpoint.value);

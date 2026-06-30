@@ -9,6 +9,7 @@ import { useAbortStreamMutation } from '~/data-provider';
 import useNewConvo from '~/hooks/useNewConvo';
 import { useLatestMessage, useLatestMessageId } from '~/hooks/Messages/useLatestMessage';
 import { getMessageCacheIds } from './cache';
+import { isBrowserLocalEndpoint } from '~/utils/browserLocal';
 import store from '~/store';
 
 // this to be set somewhere else
@@ -129,14 +130,21 @@ export default function useChatHelpers(index = 0, paramId?: string) {
    */
   const stopGenerating = useCallback(async () => {
     const actualEndpoint = endpointType ?? endpoint;
+    const isBrowserLocal = isBrowserLocalEndpoint(endpoint);
     const isAssistants = isAssistantsEndpoint(actualEndpoint);
     console.log('[useChatHelpers] stopGenerating called', {
       conversationId,
       endpoint,
       endpointType,
       actualEndpoint,
+      isBrowserLocal,
       isAssistants,
     });
+
+    if (isBrowserLocal) {
+      clearAllSubmissions();
+      return;
+    }
 
     // For non-assistants endpoints (using resumable streams), call abort endpoint first
     if (conversationId && !isAssistants) {
