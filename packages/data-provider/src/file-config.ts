@@ -13,6 +13,7 @@ export const supportsFiles = {
   [EModelEndpoint.anthropic]: true,
   [EModelEndpoint.custom]: true,
   [EModelEndpoint.bedrock]: true,
+  browserLocal: true,
 };
 
 export const excelFileTypes = [

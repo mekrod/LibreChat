@@ -3,12 +3,25 @@ import { v4 } from 'uuid';
 import { useSetRecoilState } from 'recoil';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Constants, ContentTypes, QueryKeys } from 'librechat-data-provider';
-import type { TMessage, TSubmission, TConversation } from 'librechat-data-provider';
+import { Constants, ContentTypes, QueryKeys, ToolCallTypes } from 'librechat-data-provider';
+import type {
+  TMessage,
+  TSubmission,
+  TAttachment,
+  TConversation,
+  TMessageContentParts,
+} from 'librechat-data-provider';
 import type { EventHandlerParams } from './useEventHandlers';
 import type { BrowserLocalChatMessage } from '~/utils/browserLocalGemma';
 import { getBrowserLocalProgressText, loadBrowserLocalGemma } from '~/utils/browserLocalGemma';
 import { saveBrowserLocalConversation } from '~/utils/browserLocalStore';
+import { buildBrowserLocalSystemMessage } from '~/utils/browserLocalPrompts';
+import {
+  hasBrowserLocalMiniAppBundle,
+  isBrowserLocalMiniAppRequest,
+  normalizeBrowserLocalMiniAppResponse,
+} from '~/utils/browserLocalMiniApps';
+import { formatBrowserLocalToolResults, runBrowserLocalTools } from '~/utils/browserLocalTools';
 import { clearAllDrafts, upsertConvoInAllQueries } from '~/utils';
 import store from '~/store';
 
@@ -36,6 +49,46 @@ function toBrowserMessages(messages: TMessage[]): BrowserLocalChatMessage[] {
   }, []);
 }
 
+function addContextToLastUserMessage(
+  messages: BrowserLocalChatMessage[],
+  context: string,
+  placement: 'before' | 'after',
+): BrowserLocalChatMessage[] {
+  const content = context.trim();
+  if (!content) {
+    return messages;
+  }
+
+  const nextMessages = [...messages];
+  for (let i = nextMessages.length - 1; i >= 0; i--) {
+    if (nextMessages[i].role !== 'user') {
+      continue;
+    }
+    nextMessages[i] = {
+      ...nextMessages[i],
+      content:
+        placement === 'before'
+          ? `${content}\n\nUser request:\n${nextMessages[i].content}`
+          : `${nextMessages[i].content}\n\n${content}`,
+    };
+    return nextMessages;
+  }
+
+  return [{ role: 'user', content }, ...nextMessages];
+}
+
+function addAppRepairInstruction(messages: BrowserLocalChatMessage[]): BrowserLocalChatMessage[] {
+  return addContextToLastUserMessage(
+    messages,
+    `Your previous answer did not create the requested app in LibreChat's renderable format.
+You must now output a complete LibreChat mini app bundle:
+1. Start with a \`\`\`miniapp JSON manifest whose entryFile is "src/index.jsx".
+2. Then output separate fenced file blocks with file="src/index.jsx", file="src/App.jsx", and any needed CSS/data files.
+3. Do not provide only an explanation, apology, raw HTML, shell commands, or placeholders.`,
+    'after',
+  );
+}
+
 function updateResponseMessage(
   messages: TMessage[],
   responseId: string,
@@ -46,13 +99,73 @@ function updateResponseMessage(
   );
 }
 
-function buildTextContent(text: string): TMessage['content'] {
+function buildTextContent(text: string): TMessageContentParts[] {
   return [
     {
       type: ContentTypes.TEXT,
       [ContentTypes.TEXT]: text,
     },
-  ] as TMessage['content'];
+  ] as TMessageContentParts[];
+}
+
+function buildToolCallContent({
+  id,
+  name,
+  args,
+  output,
+  progress,
+}: {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  output?: string;
+  progress: number;
+}): TMessageContentParts {
+  return {
+    type: ContentTypes.TOOL_CALL,
+    [ContentTypes.TOOL_CALL]: {
+      id,
+      name,
+      args,
+      output,
+      progress,
+      type: ToolCallTypes.TOOL_CALL,
+    },
+  } as TMessageContentParts;
+}
+
+function buildResponseContent(
+  text: string,
+  toolParts: TMessageContentParts[],
+): TMessageContentParts[] {
+  const trimmedText = text.length > 0 ? buildTextContent(text) : [];
+  return [...toolParts, ...trimmedText];
+}
+
+function stringifyToolOutput(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function normalizeToolAttachments(
+  attachments: unknown[] | undefined,
+  toolCallId: string,
+): TAttachment[] {
+  return (attachments ?? [])
+    .filter((attachment): attachment is TAttachment => {
+      return attachment !== null && typeof attachment === 'object' && !Array.isArray(attachment);
+    })
+    .map((attachment) => ({
+      ...attachment,
+      toolCallId,
+    }));
 }
 
 function buildLocalConversation(submission: TSubmission, conversationId: string): TConversation {
@@ -151,13 +264,20 @@ export default function useBrowserLocalSSE(
           latestNavigate(`/c/${conversationId}`, { replace: true, state: { focusChat: true } });
         }
 
+        let responseText = '';
+        let toolParts: TMessageContentParts[] = [];
+        let toolAttachments: TAttachment[] = [];
+
         const setResponseText = (text: string, unfinished = true) => {
+          responseText = text;
           const messages = getMessages() ?? hydratedMessages;
           const timestamp = new Date().toISOString();
+          const content = buildResponseContent(text, toolParts);
           const nextMessages = updateResponseMessage(messages, responseId, {
             text,
             unfinished,
-            content: buildTextContent(text),
+            content,
+            attachments: toolAttachments,
             ...(!unfinished ? { createdAt: timestamp, updatedAt: timestamp } : {}),
           });
           localConversation = {
@@ -180,6 +300,46 @@ export default function useBrowserLocalSSE(
           upsertConvoInAllQueries(latestQueryClient, localConversation);
         };
 
+        const updateToolCall = ({
+          toolCallId,
+          tool,
+          args,
+          output,
+          progress,
+          attachments,
+        }: {
+          toolCallId: string;
+          tool: string;
+          args: Record<string, unknown>;
+          output?: string;
+          progress: number;
+          attachments?: TAttachment[];
+        }) => {
+          const nextPart = buildToolCallContent({
+            id: toolCallId,
+            name: tool,
+            args,
+            output,
+            progress,
+          });
+          const existingIndex = toolParts.findIndex((part) => {
+            const toolCall = part[ContentTypes.TOOL_CALL];
+            return toolCall?.id === toolCallId;
+          });
+          toolParts =
+            existingIndex >= 0
+              ? toolParts.map((part, index) => (index === existingIndex ? nextPart : part))
+              : [...toolParts, nextPart];
+          if (attachments && attachments.length > 0) {
+            const attachmentIds = new Set(attachments.map((attachment) => attachment.toolCallId));
+            toolAttachments = [
+              ...toolAttachments.filter((attachment) => !attachmentIds.has(attachment.toolCallId)),
+              ...attachments,
+            ];
+          }
+          setResponseText(responseText);
+        };
+
         setResponseText('Loading browser local model...');
         const model = await loadBrowserLocalGemma({
           signal: controller.signal,
@@ -195,19 +355,93 @@ export default function useBrowserLocalSSE(
         }
 
         let reply = '';
-        const promptMessages = toBrowserMessages([
+        const systemMessage = buildBrowserLocalSystemMessage(currentSubmission);
+        let promptMessages = toBrowserMessages([
           ...currentSubmission.messages,
           currentSubmission.userMessage,
         ]);
-        for await (const chunk of model.generate(promptMessages, {
-          maxNewTokens: 4096,
+        if (systemMessage != null) {
+          promptMessages = addContextToLastUserMessage(
+            promptMessages,
+            `LibreChat instructions for this browser-local response:\n${systemMessage.content}`,
+            'before',
+          );
+        }
+        const toolResults = await runBrowserLocalTools({
+          model,
+          responseId,
+          conversationId,
+          submission: currentSubmission,
           signal: controller.signal,
-        })) {
-          if (controller.signal.aborted) {
-            break;
+          messages: promptMessages,
+          onStatus: setResponseText,
+          onToolStart: ({ tool, args }) => {
+            const toolCallId = `browserlocal_${tool}_${v4()}`;
+            updateToolCall({
+              tool,
+              args,
+              toolCallId,
+              progress: 0.1,
+            });
+            return toolCallId;
+          },
+          onToolEnd: ({ tool, args, result, toolCallId }) => {
+            if (!toolCallId) {
+              return;
+            }
+            updateToolCall({
+              tool,
+              args,
+              toolCallId,
+              progress: result.error ? 0.1 : 1,
+              output: result.error ?? stringifyToolOutput(result.result),
+              attachments: normalizeToolAttachments(result.attachments, toolCallId),
+            });
+          },
+        });
+        const toolContext = formatBrowserLocalToolResults(toolResults);
+        if (toolContext) {
+          promptMessages = addContextToLastUserMessage(
+            promptMessages,
+            `Use these tool results when answering. Do not claim a tool failed if it returned useful output.\n\n${toolContext}`,
+            'after',
+          );
+        }
+        const generateReply = async (messages: BrowserLocalChatMessage[]) => {
+          let text = '';
+          for await (const chunk of model.generate(messages, {
+            maxNewTokens: 4096,
+            signal: controller.signal,
+          })) {
+            if (controller.signal.aborted) {
+              break;
+            }
+            text = chunk.text;
+            setResponseText(text);
           }
-          reply = chunk.text;
-          setResponseText(reply);
+          return text;
+        };
+
+        const shouldCreateMiniApp = isBrowserLocalMiniAppRequest(
+          currentSubmission.userMessage.text,
+        );
+
+        reply = await generateReply(promptMessages);
+        if (!controller.signal.aborted && shouldCreateMiniApp) {
+          reply =
+            normalizeBrowserLocalMiniAppResponse(reply, currentSubmission.userMessage.text) ??
+            reply;
+
+          if (!hasBrowserLocalMiniAppBundle(reply)) {
+            setResponseText('Creating browser local app...');
+            model.reset();
+            const repairedReply = await generateReply(addAppRepairInstruction(promptMessages));
+            reply =
+              normalizeBrowserLocalMiniAppResponse(
+                repairedReply,
+                currentSubmission.userMessage.text,
+              ) ?? repairedReply;
+          }
         }
 
         setResponseText(reply, false);

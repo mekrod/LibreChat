@@ -297,6 +297,27 @@ function hasRuntimeEntry(files: Record<string, string>): boolean {
   return files['/index.html'] != null || getSandpackRuntimeEntry(files) != null;
 }
 
+function fixRuntimeEntryContent(content: string): string {
+  if (!/\bcreateRoot\s*\(/.test(content)) {
+    return content;
+  }
+
+  if (/from\s+['"]react-dom\/client['"]/.test(content)) {
+    return content;
+  }
+
+  return `import { createRoot } from 'react-dom/client';\n${content}`;
+}
+
+function fixRuntimeEntries(files: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(files).map(([path, content]) => [
+      path,
+      RUNTIME_ENTRY_PATTERN.test(path) ? fixRuntimeEntryContent(content) : content,
+    ]),
+  );
+}
+
 function getReactComponentEntry(files: Record<string, string>, entryFile?: string): string | null {
   const preferredEntry = entryFile ? toSandpackPath(entryFile) : null;
   if (
@@ -336,10 +357,12 @@ export function toSandpackFiles(
   files: MiniAppFileInput,
   entryFile?: string,
 ): Record<string, string> {
-  const normalized = Object.fromEntries(
-    toMiniAppFileEntries(files)
-      .map(([path, content]) => [toSandpackPath(path), content.trimEnd()])
-      .filter(([path, content]) => path !== '/' && content.length > 0),
+  const normalized = fixRuntimeEntries(
+    Object.fromEntries(
+      toMiniAppFileEntries(files)
+        .map(([path, content]) => [toSandpackPath(path), content.trimEnd()])
+        .filter(([path, content]) => path !== '/' && content.length > 0),
+    ),
   );
   const componentEntry = getReactComponentEntry(normalized, entryFile);
 

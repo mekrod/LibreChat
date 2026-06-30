@@ -150,10 +150,10 @@ export default function WebSearch({
     }
     const result = searchResults?.[ownTurn];
     if (!result) {
-      return [];
+      return allSources;
     }
     return [...(result.organic || []), ...(result.topStories || [])];
-  }, [searchResults, complete, finalizing, ownTurn]);
+  }, [allSources, searchResults, complete, finalizing, ownTurn]);
 
   const showSources = streamingSources.length > 0;
   const progressText = useMemo(() => {

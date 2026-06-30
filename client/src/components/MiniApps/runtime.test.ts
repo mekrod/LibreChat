@@ -134,4 +134,22 @@ describe('toSandpackFiles', () => {
     expect(files['/src/index.jsx']).toBe('custom runtime entry');
     expect(getSandpackRuntimeEntry(files, 'src/index.jsx')).toBe('/src/index.jsx');
   });
+
+  it('repairs runtime entries that use createRoot without importing it', () => {
+    const files = toSandpackFiles(
+      {
+        'src/App.jsx': 'export default function App() { return <main />; }',
+        'src/index.jsx': [
+          "import React from 'react';",
+          "import App from './App.jsx';",
+          '',
+          "createRoot(document.getElementById('root')).render(<App />);",
+        ].join('\n'),
+      },
+      'src/index.jsx',
+    );
+
+    expect(files['/src/index.jsx']).toContain("import { createRoot } from 'react-dom/client';");
+    expect(files['/src/index.jsx']).toContain('createRoot(document.getElementById');
+  });
 });

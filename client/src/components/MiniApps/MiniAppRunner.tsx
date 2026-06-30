@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { SandpackPreview, SandpackProvider } from '@codesandbox/sandpack-react/unstyled';
 import type { TMiniApp } from 'librechat-data-provider';
-import { sharedFiles } from '~/utils/artifacts';
+import { getDependencies, sharedFiles } from '~/utils/artifacts';
 import { getSandpackActiveFile, getSandpackRuntimeEntry, toSandpackFiles } from './runtime';
 
 function getTemplate(files: Record<string, string>) {
@@ -29,7 +29,10 @@ function MiniAppRunner({ miniApp }: { miniApp: TMiniApp }) {
     [files, miniApp.entryFile],
   );
   const customSetup = useMemo(
-    () => (runtimeEntry ? { entry: runtimeEntry } : undefined),
+    () => ({
+      dependencies: getDependencies('application/vnd.react'),
+      ...(runtimeEntry ? { entry: runtimeEntry } : {}),
+    }),
     [runtimeEntry],
   );
   const template = useMemo(() => getTemplate(files), [files]);

@@ -15,11 +15,15 @@ export type BrowserLocalProgress = {
   fromCache?: boolean;
 };
 
-type Gemma4Mobile = {
+export type Gemma4Mobile = {
   generate: (
     messages: BrowserLocalChatMessage[],
     options?: { maxNewTokens?: number; signal?: AbortSignal },
   ) => AsyncIterable<{ text: string; delta: string; token: number }>;
+  complete: (
+    messages: BrowserLocalChatMessage[],
+    options?: { maxNewTokens?: number; signal?: AbortSignal },
+  ) => Promise<string>;
   warmup: () => Promise<void>;
   reset: () => void;
   dispose: () => void;

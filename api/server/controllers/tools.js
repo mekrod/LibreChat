@@ -1,6 +1,6 @@
 const { nanoid } = require('nanoid');
 const { logger } = require('@librechat/data-schemas');
-const { checkAccess, loadWebSearchAuth } = require('@librechat/api');
+const { checkAccess, loadWebSearchAuth, mcpToolPattern } = require('@librechat/api');
 const {
   Tools,
   AuthType,
@@ -17,13 +17,33 @@ const { loadTools } = require('~/app/clients/tools/util');
 
 /**
  * Tools that are callable directly via `POST /tools/:toolId/call`.
- * `execute_code` is the only entry today; the tool runs server-side via
- * the agents library / sandbox service without any per-user credential.
+ * `execute_code` is the existing direct-call tool. Browser Local can call a
+ * narrow extra set because it runs its own model loop outside backend agents.
  */
 const directCallableTools = new Set([Tools.execute_code]);
+const browserLocalCallableTools = new Set([Tools.web_search, Tools.file_search]);
 
 const toolAccessPermType = {
   [Tools.execute_code]: PermissionTypes.RUN_CODE,
+  [Tools.web_search]: PermissionTypes.WEB_SEARCH,
+  [Tools.file_search]: PermissionTypes.FILE_SEARCH,
+};
+
+const isDirectCallableTool = (toolId, browserLocal = false) =>
+  directCallableTools.has(toolId) ||
+  (browserLocal === true && (browserLocalCallableTools.has(toolId) || mcpToolPattern.test(toolId)));
+
+const buildDirectToolAttachment = ({ artifact, toolId, messageId, toolCallId, conversationId }) => {
+  if (!artifact || !artifact[toolId]) {
+    return null;
+  }
+  return {
+    type: toolId,
+    messageId,
+    toolCallId,
+    conversationId,
+    [toolId]: { ...artifact[toolId] },
+  };
 };
 
 /**
@@ -68,7 +88,7 @@ const verifyToolAuth = async (req, res) => {
     if (toolId === Tools.web_search) {
       return await verifyWebSearchAuth(req, res);
     }
-    if (!directCallableTools.has(toolId)) {
+    if (!isDirectCallableTool(toolId)) {
       res.status(404).json({ message: 'Tool not found' });
       return;
     }
@@ -100,21 +120,23 @@ const callTool = async (req, res) => {
   try {
     const appConfig = req.config;
     const { toolId = '' } = req.params;
-    if (!directCallableTools.has(toolId)) {
+    const { partIndex, blockIndex, messageId, conversationId, browserLocal, files, ...args } =
+      req.body;
+    if (!isDirectCallableTool(toolId, browserLocal === true)) {
       logger.warn(`[${toolId}/call] User ${req.user.id} attempted call to invalid tool`);
       res.status(404).json({ message: 'Tool not found' });
       return;
     }
 
-    const { partIndex, blockIndex, messageId, conversationId, ...args } = req.body;
     if (!messageId) {
       logger.warn(`[${toolId}/call] User ${req.user.id} attempted call without message ID`);
       res.status(400).json({ message: 'Message ID required' });
       return;
     }
 
-    const message = await getMessage({ user: req.user.id, messageId });
-    if (!message) {
+    const message =
+      browserLocal === true ? null : await getMessage({ user: req.user.id, messageId });
+    if (!message && browserLocal !== true) {
       logger.debug(`[${toolId}/call] User ${req.user.id} attempted call with invalid message ID`);
       res.status(404).json({ message: 'Message not found' });
       return;
@@ -141,6 +163,13 @@ const callTool = async (req, res) => {
       functions: true,
       options: {
         req,
+        tool_resources: files?.length
+          ? {
+              file_search: {
+                file_ids: files,
+              },
+            }
+          : undefined,
         returnMetadata: true,
         processFileURL,
         uploadImageBuffer,
@@ -152,14 +181,34 @@ const callTool = async (req, res) => {
 
     const tool = loadedTools[0];
     const toolCallId = `${req.user.id}_${nanoid()}`;
-    const result = await tool.invoke({
+    const toolCall = {
       args,
       name: toolId,
       id: toolCallId,
       type: ToolCallTypes.TOOL_CALL,
+      turn: 0,
+    };
+    const result = await tool.invoke(args, {
+      metadata: {
+        user_id: req.user.id,
+        thread_id: conversationId,
+        run_id: messageId,
+      },
+      toolCall,
     });
 
     const { content, artifact } = result;
+    const directAttachments = [Tools.web_search, Tools.file_search, Tools.ui_resources]
+      .map((artifactToolId) =>
+        buildDirectToolAttachment({
+          artifact,
+          toolId: artifactToolId,
+          messageId,
+          toolCallId,
+          conversationId,
+        }),
+      )
+      .filter(Boolean);
     const toolCallData = {
       toolId,
       messageId,
@@ -170,6 +219,17 @@ const callTool = async (req, res) => {
       user: req.user.id,
       ...(await getRetentionExpiry(req)),
     };
+
+    if (directAttachments.length > 0 && toolId !== Tools.execute_code) {
+      toolCallData.attachments = directAttachments;
+      createToolCall(toolCallData).catch((error) => {
+        logger.error(`Error creating tool call: ${error.message}`);
+      });
+      return res.status(200).json({
+        result: content,
+        attachments: directAttachments,
+      });
+    }
 
     if (!artifact || !artifact.files || toolId !== Tools.execute_code) {
       createToolCall(toolCallData).catch((error) => {

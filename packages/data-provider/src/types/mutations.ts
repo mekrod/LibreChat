@@ -442,6 +442,19 @@ export type ToolParamsMap = {
     lang: string;
     code: string;
   };
+  [Tools.web_search]: {
+    query: string;
+    date?: string;
+    country?: string;
+    images?: boolean;
+    videos?: boolean;
+    news?: boolean;
+  };
+  [Tools.file_search]: {
+    query: string;
+    files?: string[];
+  };
+  [key: string]: Record<string, unknown>;
 };
 
 export type ToolId = keyof ToolParamsMap;
