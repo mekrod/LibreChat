@@ -300,6 +300,26 @@ const pendingQuotesByConvoId = atomFamily<string[], string>({
   default: [],
 });
 
+export type MiniAppCustomizationAction = 'add_feature' | 'erase_feature';
+
+export type MiniAppCustomization = {
+  enabled: boolean;
+  miniAppId: string | null;
+  miniAppTitle: string;
+  miniAppDescription?: string;
+  action: MiniAppCustomizationAction;
+};
+
+const miniAppCustomizationByIndex = atomFamily<MiniAppCustomization, string | number>({
+  key: 'miniAppCustomizationByIndex',
+  default: {
+    enabled: false,
+    miniAppId: null,
+    miniAppTitle: '',
+    action: 'add_feature',
+  },
+});
+
 const globalAudioURLFamily = atomFamily<string | null, string | number | null>({
   key: 'globalAudioURLByIndex',
   default: null,
@@ -466,5 +486,6 @@ export default {
   showSkillsPopoverFamily,
   pendingManualSkillsByConvoId,
   pendingQuotesByConvoId,
+  miniAppCustomizationByIndex,
   updateConversationSelector,
 };

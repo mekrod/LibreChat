@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AppWindow, Code2, LayoutGrid, Trash2 } from 'lucide-react';
+import { AppWindow, Code2, LayoutGrid, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Button, Spinner, useMediaQuery } from '@librechat/client';
+import { useSetRecoilState } from 'recoil';
 import type { TMiniAppSummary } from 'librechat-data-provider';
 import {
   useDeleteMiniAppMutation,
@@ -10,68 +11,9 @@ import {
 } from '~/data-provider';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import { useLocalize } from '~/hooks';
-import { cn } from '~/utils';
+import store from '~/store';
 import MiniAppRunner from './MiniAppRunner';
-
-const PREVIEW_STYLES = [
-  {
-    shell: 'bg-[#f7f3ea]',
-    accent: 'bg-[#2563eb]',
-    secondary: 'bg-[#f59e0b]',
-    panel: 'bg-white',
-  },
-  {
-    shell: 'bg-[#edf7f2]',
-    accent: 'bg-[#059669]',
-    secondary: 'bg-[#0f766e]',
-    panel: 'bg-white',
-  },
-  {
-    shell: 'bg-[#f6eef8]',
-    accent: 'bg-[#7c3aed]',
-    secondary: 'bg-[#db2777]',
-    panel: 'bg-white',
-  },
-  {
-    shell: 'bg-[#eef5ff]',
-    accent: 'bg-[#0284c7]',
-    secondary: 'bg-[#ea580c]',
-    panel: 'bg-white',
-  },
-];
-
-function getPreviewStyle(miniAppId: string) {
-  const index = Math.abs(miniAppId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0));
-  return PREVIEW_STYLES[index % PREVIEW_STYLES.length] ?? PREVIEW_STYLES[0];
-}
-
-function MiniAppPreview({ miniApp }: { miniApp: TMiniAppSummary }) {
-  const style = getPreviewStyle(miniApp._id);
-
-  return (
-    <div className={cn('aspect-[16/10] overflow-hidden rounded-t-md p-3', style.shell)}>
-      <div className="flex h-full flex-col rounded-md border border-black/10 bg-white/80 shadow-sm">
-        <div className="flex h-6 shrink-0 items-center gap-1 border-b border-black/10 px-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-          <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
-          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-        </div>
-        <div className="grid min-h-0 flex-1 grid-cols-[0.85fr_1.15fr] gap-2 p-2">
-          <div className={cn('rounded-sm', style.accent)} />
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <div className={cn('h-3 rounded-sm', style.secondary)} />
-            <div className="h-2 rounded-sm bg-black/10" />
-            <div className="h-2 w-4/5 rounded-sm bg-black/10" />
-            <div className="mt-auto grid grid-cols-2 gap-1">
-              <div className={cn('h-8 rounded-sm', style.panel)} />
-              <div className={cn('h-8 rounded-sm', style.panel)} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+import MiniAppPreview from './Preview';
 
 function MiniAppsLibrary() {
   const localize = useLocalize();
@@ -118,7 +60,7 @@ function MiniAppsLibrary() {
                 to={`/mini-apps/${miniApp._id}`}
                 className="group overflow-hidden rounded-md border border-border-light bg-surface-primary-alt transition-colors hover:border-border-medium hover:bg-surface-hover"
               >
-                <MiniAppPreview miniApp={miniApp} />
+                <MiniAppPreview miniAppId={miniApp._id} />
                 <div className="flex min-h-28 flex-col gap-2 p-3">
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <h3 className="line-clamp-2 text-sm font-semibold text-text-primary">
@@ -155,6 +97,7 @@ export default function MiniAppsView() {
   const selectedId = params.miniAppId;
   const { data: miniApp, isLoading } = useMiniAppQuery(selectedId);
   const deleteMutation = useDeleteMiniAppMutation();
+  const setMiniAppCustomization = useSetRecoilState(store.miniAppCustomizationByIndex(0));
 
   const deleteSelected = async () => {
     if (!selectedId) {
@@ -162,6 +105,20 @@ export default function MiniAppsView() {
     }
     await deleteMutation.mutateAsync(selectedId);
     navigate('/mini-apps');
+  };
+
+  const customizeSelected = () => {
+    if (!miniApp) {
+      return;
+    }
+    setMiniAppCustomization({
+      enabled: true,
+      miniAppId: miniApp._id,
+      miniAppTitle: miniApp.title,
+      miniAppDescription: miniApp.description,
+      action: 'add_feature',
+    });
+    navigate('/c/new', { state: { focusChat: true } });
   };
 
   let content = (
@@ -193,6 +150,16 @@ export default function MiniAppsView() {
             <h1 className="truncate text-base font-semibold">
               {miniApp?.title ?? localize('com_ui_mini_apps')}
             </h1>
+            {miniApp ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={customizeSelected}
+                aria-label={localize('com_ui_mini_apps_customize')}
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             {miniApp ? (

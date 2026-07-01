@@ -25,6 +25,7 @@ import PendingManualSkillsChips from './PendingManualSkillsChips';
 import { cn, getModelSpec, removeFocusRings } from '~/utils';
 import { useGetStartupConfig } from '~/data-provider';
 import { mainTextareaId, BadgeItem } from '~/common';
+import MiniAppCustomizationFields from './MiniAppCustomizationFields';
 import PendingQuoteChips from './PendingQuoteChips';
 import AttachFileChat from './Files/AttachFileChat';
 import FileFormChat from './Files/FileFormChat';
@@ -296,6 +297,7 @@ const ChatForm = memo(function ChatForm({
             <TextareaHeader addedConvo={addedConvo} setAddedConvo={setAddedConvo} />
             <PendingManualSkillsChips conversationId={conversationId} />
             {quotesEnabled && <PendingQuoteChips conversationId={conversationId} />}
+            <MiniAppCustomizationFields index={index} />
             {/* WIP */}
             <EditBadges
               isEditingChatBadges={isEditingBadges}
