@@ -103,6 +103,7 @@ config.local.ts
 junit.xml
 **/.venv/
 **/venv/
+tools/local-web-search/.runtime/
 
 # docker override file
 docker-compose.override.yaml

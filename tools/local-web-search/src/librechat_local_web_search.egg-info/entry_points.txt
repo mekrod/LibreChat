@@ -1,0 +1,2 @@
+[console_scripts]
+local-web-search = local_web_search.app:main

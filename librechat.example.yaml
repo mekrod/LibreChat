@@ -829,6 +829,14 @@ endpoints:
 #     # includeDomains:         # Restrict search to specific domains (max 300)
 #     #   - 'example.com'
 #     #   - 'docs.example.com'
+#
+# Local helper app as both search and scraper provider example:
+# webSearch:
+#   searchProvider: local
+#   scraperProvider: local
+#   rerankerType: none
+#   localWebSearchUrl: '${LOCAL_WEB_SEARCH_URL}'
+#   localWebSearchToken: '${LOCAL_WEB_SEARCH_TOKEN}'
 #     # excludeDomains:         # Exclude specific domains from results (max 150)
 #     #   - 'spam.com'
 #     # timeRange: week         # 'day', 'week', 'month', or 'year'

@@ -47,6 +47,13 @@ const PUBLIC_USER_RESPONSE_FIELDS = [
   'tenantId',
 ];
 
+const WEB_SEARCH_SELECTOR_FIELDS = [
+  'webSearchMode',
+  'selectedProvider',
+  'selectedScraper',
+  'selectedReranker',
+];
+
 const sanitizeUserForResponse = (user) => {
   const source = user.toObject != null ? user.toObject() : user;
   return PUBLIC_USER_RESPONSE_FIELDS.reduce((userData, field) => {
@@ -215,7 +222,7 @@ const updateUserPluginsController = async (req, res) => {
     }
 
     let keys = Object.keys(auth);
-    const values = Object.values(auth); // Used in 'install' block
+    let values = Object.values(auth); // Used in 'install' block
 
     const isMCPTool = pluginKey.startsWith('mcp_') || pluginKey.includes(Constants.mcp_delimiter);
 
@@ -240,12 +247,29 @@ const updateUserPluginsController = async (req, res) => {
     let authService;
 
     if (pluginKey === Tools.web_search) {
+      if (action === 'install') {
+        for (const field of WEB_SEARCH_SELECTOR_FIELDS) {
+          if (auth[field]) {
+            authService = await updateUserPluginAuth(user.id, field, pluginKey, auth[field]);
+            if (authService instanceof Error) {
+              logger.error('[authService]', authService);
+              ({ status, message } = normalizeHttpError(authService));
+            }
+            delete auth[field];
+          }
+        }
+        keys = Object.keys(auth);
+        values = Object.values(auth);
+      }
       /** @type  {TCustomConfig['webSearch']} */
       const webSearchConfig = appConfig?.webSearch;
       keys = extractWebSearchEnvVars({
         keys: action === 'install' ? keys : webSearchKeys,
         config: webSearchConfig,
       });
+      if (action === 'uninstall') {
+        keys = [...new Set([...keys, ...WEB_SEARCH_SELECTOR_FIELDS])];
+      }
     }
 
     if (action === 'install') {

@@ -4,6 +4,7 @@ import { AuthType, Tools, QueryKeys } from 'librechat-data-provider';
 import { useUpdateUserPluginsMutation } from 'librechat-data-provider/react-query';
 
 export type SearchApiKeyFormData = {
+  webSearchMode: 'local' | 'legacy';
   // Selected options
   selectedProvider: string;
   selectedReranker: string;
@@ -12,6 +13,8 @@ export type SearchApiKeyFormData = {
   serperApiKey: string;
   searxngInstanceUrl: string;
   searxngApiKey: string;
+  localWebSearchUrl: string;
+  localWebSearchToken: string;
   firecrawlApiKey: string;
   firecrawlApiUrl: string;
   tavilyApiKey: string;
@@ -50,9 +53,15 @@ const useAuthSearchTool = (options?: { isEntityTool: boolean }) => {
   const installTool = useCallback(
     (data: SearchApiKeyFormData) => {
       const auth = Object.entries({
+        webSearchMode: data.webSearchMode,
+        selectedProvider: data.selectedProvider,
+        selectedScraper: data.selectedScraper,
+        selectedReranker: data.selectedReranker,
         serperApiKey: data.serperApiKey,
         searxngInstanceUrl: data.searxngInstanceUrl,
         searxngApiKey: data.searxngApiKey,
+        localWebSearchUrl: data.localWebSearchUrl,
+        localWebSearchToken: data.localWebSearchToken,
         firecrawlApiKey: data.firecrawlApiKey,
         firecrawlApiUrl: data.firecrawlApiUrl,
         tavilyApiKey: data.tavilyApiKey,

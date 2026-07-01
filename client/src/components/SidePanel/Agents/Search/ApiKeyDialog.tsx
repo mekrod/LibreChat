@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
 import {
   AuthType,
@@ -8,7 +8,7 @@ import {
   SearchCategories,
 } from 'librechat-data-provider';
 import type { SearchApiKeyFormData } from '~/hooks/Plugins/useAuthSearchTool';
-import type { UseFormRegister, UseFormHandleSubmit } from 'react-hook-form';
+import type { UseFormRegister, UseFormHandleSubmit, UseFormSetValue } from 'react-hook-form';
 import InputSection, { type DropdownOption } from './InputSection';
 import { useGetStartupConfig } from '~/data-provider';
 import { useLocalize } from '~/hooks';
@@ -21,6 +21,7 @@ export default function ApiKeyDialog({
   authTypes,
   isToolAuthenticated,
   register,
+  setValue,
   handleSubmit,
   triggerRef,
   triggerRefs,
@@ -32,6 +33,7 @@ export default function ApiKeyDialog({
   authTypes: [string, AuthType][];
   isToolAuthenticated: boolean;
   register: UseFormRegister<SearchApiKeyFormData>;
+  setValue?: UseFormSetValue<SearchApiKeyFormData>;
   handleSubmit: UseFormHandleSubmit<SearchApiKeyFormData>;
   triggerRef?: React.RefObject<HTMLInputElement | HTMLButtonElement>;
   triggerRefs?: React.RefObject<HTMLInputElement | HTMLButtonElement>[];
@@ -39,14 +41,22 @@ export default function ApiKeyDialog({
   const localize = useLocalize();
   const { data: config } = useGetStartupConfig();
 
-  const [selectedProvider, setSelectedProvider] = useState(
-    config?.webSearch?.searchProvider || SearchProviders.SERPER,
+  const [webSearchMode, setWebSearchMode] = useState<'local' | 'legacy'>('local');
+  const [selectedProvider, setSelectedProvider] = useState<SearchProviders>(
+    config?.webSearch?.searchProvider && config.webSearch.searchProvider !== SearchProviders.LOCAL
+      ? config.webSearch.searchProvider
+      : SearchProviders.SERPER,
   );
-  const [selectedReranker, setSelectedReranker] = useState(
-    config?.webSearch?.rerankerType || RerankerTypes.JINA,
+  const [selectedReranker, setSelectedReranker] = useState<RerankerTypes>(
+    config?.webSearch?.rerankerType && config.webSearch.rerankerType !== RerankerTypes.NONE
+      ? config.webSearch.rerankerType
+      : RerankerTypes.JINA,
   );
-  const [selectedScraper, setSelectedScraper] = useState(
-    config?.webSearch?.scraperProvider || ScraperProviders.FIRECRAWL,
+  const [selectedScraper, setSelectedScraper] = useState<ScraperProviders>(
+    config?.webSearch?.scraperProvider &&
+      config.webSearch.scraperProvider !== ScraperProviders.LOCAL
+      ? config.webSearch.scraperProvider
+      : ScraperProviders.FIRECRAWL,
   );
 
   const providerOptions: DropdownOption[] = [
@@ -92,7 +102,25 @@ export default function ApiKeyDialog({
         },
       },
     },
+    {
+      key: SearchProviders.LOCAL,
+      label: localize('com_ui_web_search_provider_local'),
+      inputs: {
+        localWebSearchUrl: {
+          placeholder: localize('com_ui_web_search_local_url'),
+          type: 'text' as const,
+        },
+        localWebSearchToken: {
+          placeholder: localize('com_ui_web_search_local_token'),
+          type: 'password' as const,
+        },
+      },
+    },
   ];
+  const legacyProviderOptions = useMemo(
+    () => providerOptions.filter((option) => option.key !== SearchProviders.LOCAL),
+    [providerOptions],
+  );
 
   const rerankerOptions: DropdownOption[] = [
     {
@@ -180,7 +208,25 @@ export default function ApiKeyDialog({
         },
       },
     },
+    {
+      key: ScraperProviders.LOCAL,
+      label: localize('com_ui_web_search_scraper_local'),
+      inputs: {
+        localWebSearchUrl: {
+          placeholder: localize('com_ui_web_search_local_url'),
+          type: 'text' as const,
+        },
+        localWebSearchToken: {
+          placeholder: localize('com_ui_web_search_local_token'),
+          type: 'password' as const,
+        },
+      },
+    },
   ];
+  const legacyScraperOptions = useMemo(
+    () => scraperOptions.filter((option) => option.key !== ScraperProviders.LOCAL),
+    [scraperOptions],
+  );
 
   const [dropdownOpen, setDropdownOpen] = useState({
     provider: false,
@@ -190,7 +236,29 @@ export default function ApiKeyDialog({
 
   const providerAuthType = authTypes.find(([cat]) => cat === SearchCategories.PROVIDERS)?.[1];
   const scraperAuthType = authTypes.find(([cat]) => cat === SearchCategories.SCRAPERS)?.[1];
-  const rerankerAuthType = authTypes.find(([cat]) => cat === SearchCategories.RERANKERS)?.[1];
+  const localProviderOption = providerOptions.find(
+    (option) => option.key === SearchProviders.LOCAL,
+  );
+  const showLegacySettings = webSearchMode === 'legacy';
+  const showProviderSection =
+    showLegacySettings || providerAuthType !== AuthType.SYSTEM_DEFINED || webSearchMode === 'local';
+  const showScraperSection = showLegacySettings || scraperAuthType !== AuthType.SYSTEM_DEFINED;
+
+  useEffect(() => {
+    if (!setValue) {
+      return;
+    }
+    setValue('webSearchMode', webSearchMode);
+    setValue(
+      'selectedProvider',
+      webSearchMode === 'local' ? SearchProviders.LOCAL : selectedProvider,
+    );
+    setValue(
+      'selectedScraper',
+      webSearchMode === 'local' ? ScraperProviders.LOCAL : selectedScraper,
+    );
+    setValue('selectedReranker', webSearchMode === 'local' ? RerankerTypes.NONE : selectedReranker);
+  }, [selectedProvider, selectedReranker, selectedScraper, setValue, webSearchMode]);
 
   const handleProviderChange = (key: string) => {
     setSelectedProvider(key as SearchProviders);
@@ -218,14 +286,53 @@ export default function ApiKeyDialog({
           <>
             <div className="mb-4 text-center font-medium">{localize('com_ui_web_search')}</div>
             <form onSubmit={handleSubmit(onSubmit)}>
+              <div className="mb-6 grid grid-cols-2 rounded-md border border-border-light p-1">
+                <button
+                  type="button"
+                  className={`rounded px-3 py-2 text-sm transition-colors ${
+                    webSearchMode === 'local'
+                      ? 'bg-surface-secondary text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                  onClick={() => setWebSearchMode('local')}
+                >
+                  {localize('com_ui_web_search_mode_local')}
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-3 py-2 text-sm transition-colors ${
+                    webSearchMode === 'legacy'
+                      ? 'bg-surface-secondary text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                  onClick={() => setWebSearchMode('legacy')}
+                >
+                  {localize('com_ui_web_search_mode_legacy')}
+                </button>
+              </div>
+
               {/* Provider Section */}
-              {providerAuthType !== AuthType.SYSTEM_DEFINED && (
+              {webSearchMode === 'local' && localProviderOption && (
+                <InputSection
+                  title={localize('com_ui_web_search_provider')}
+                  selectedKey={SearchProviders.LOCAL}
+                  onSelectionChange={() => undefined}
+                  dropdownOptions={[localProviderOption]}
+                  showDropdown={false}
+                  register={register}
+                  dropdownOpen={false}
+                  setDropdownOpen={() => undefined}
+                  dropdownKey="provider"
+                />
+              )}
+
+              {showLegacySettings && showProviderSection && (
                 <InputSection
                   title={localize('com_ui_web_search_provider')}
                   selectedKey={selectedProvider}
                   onSelectionChange={handleProviderChange}
-                  dropdownOptions={providerOptions}
-                  showDropdown={!config?.webSearch?.searchProvider}
+                  dropdownOptions={legacyProviderOptions}
+                  showDropdown={true}
                   register={register}
                   dropdownOpen={dropdownOpen.provider}
                   setDropdownOpen={(open) =>
@@ -236,13 +343,13 @@ export default function ApiKeyDialog({
               )}
 
               {/* Scraper Section */}
-              {scraperAuthType !== AuthType.SYSTEM_DEFINED && (
+              {showLegacySettings && showScraperSection && (
                 <InputSection
                   title={localize('com_ui_web_search_scraper')}
                   selectedKey={selectedScraper}
                   onSelectionChange={handleScraperChange}
-                  dropdownOptions={scraperOptions}
-                  showDropdown={!config?.webSearch?.scraperProvider}
+                  dropdownOptions={legacyScraperOptions}
+                  showDropdown={true}
                   register={register}
                   dropdownOpen={dropdownOpen.scraper}
                   setDropdownOpen={(open) =>
@@ -253,7 +360,7 @@ export default function ApiKeyDialog({
               )}
 
               {/* Reranker Section */}
-              {rerankerAuthType !== AuthType.SYSTEM_DEFINED && (
+              {showLegacySettings && (
                 <InputSection
                   title={localize('com_ui_web_search_reranker')}
                   selectedKey={selectedReranker}

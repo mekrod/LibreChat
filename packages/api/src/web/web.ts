@@ -11,11 +11,29 @@ import type { RerankerTypes, TCustomConfig, TWebSearchConfig } from 'librechat-d
 import type { TWebSearchKeys, TWebSearchCategories } from '@librechat/data-schemas';
 import { isSSRFTarget, resolveHostnameSSRF } from '../auth';
 
+const WEB_SEARCH_MODE_FIELD = 'webSearchMode';
+const WEB_SEARCH_PROVIDER_FIELD = 'selectedProvider';
+const WEB_SEARCH_SCRAPER_FIELD = 'selectedScraper';
+const WEB_SEARCH_RERANKER_FIELD = 'selectedReranker';
+
+const legacySearchProviders = new Set<string>([
+  SearchProviders.SERPER,
+  SearchProviders.SEARXNG,
+  SearchProviders.TAVILY,
+]);
+const legacyScraperProviders = new Set<string>([
+  ScraperProviders.FIRECRAWL,
+  ScraperProviders.SERPER,
+  ScraperProviders.TAVILY,
+]);
+const legacyRerankerTypes = new Set<string>(['jina', 'cohere', 'none']);
+
 /**
  * User-provided URL keys that may pass through after SSRF preflight.
  */
 const USER_PROVIDED_URL_KEYS = new Set<TWebSearchKeys>([
   'searxngInstanceUrl',
+  'localWebSearchUrl',
   'firecrawlApiUrl',
   'jinaApiUrl',
 ]);
@@ -50,6 +68,19 @@ async function isSSRFUrl(url: string): Promise<boolean> {
     return true;
   }
   return resolveHostnameSSRF(parsed.hostname);
+}
+
+function isAllowedLocalWebSearchUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const allowedHosts = new Set(['localhost', '127.0.0.1', '::1']);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      allowedHosts.has(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function extractWebSearchEnvVars({
@@ -114,6 +145,57 @@ export async function loadWebSearchAuth({
 }): Promise<WebSearchAuthResult> {
   let authenticated = true;
   const authResult: Partial<TWebSearchConfig> = {};
+  const preferenceValues = await loadAuthValues({
+    userId,
+    authFields: [
+      WEB_SEARCH_MODE_FIELD,
+      WEB_SEARCH_PROVIDER_FIELD,
+      WEB_SEARCH_SCRAPER_FIELD,
+      WEB_SEARCH_RERANKER_FIELD,
+    ],
+    optional: new Set([
+      WEB_SEARCH_MODE_FIELD,
+      WEB_SEARCH_PROVIDER_FIELD,
+      WEB_SEARCH_SCRAPER_FIELD,
+      WEB_SEARCH_RERANKER_FIELD,
+    ]),
+    throwError: false,
+  });
+  const requestedMode = preferenceValues[WEB_SEARCH_MODE_FIELD];
+  const webSearchMode =
+    requestedMode === 'legacy'
+      ? 'legacy'
+      : webSearchConfig?.searchProvider === SearchProviders.LOCAL
+        ? 'local'
+        : 'legacy';
+  const effectiveWebSearchConfig: TCustomConfig['webSearch'] = {
+    ...webSearchConfig,
+  };
+
+  if (webSearchMode === 'local') {
+    effectiveWebSearchConfig.searchProvider = SearchProviders.LOCAL;
+    effectiveWebSearchConfig.scraperProvider = ScraperProviders.LOCAL;
+    effectiveWebSearchConfig.rerankerType = 'none' as RerankerTypes;
+  } else {
+    const selectedProvider = preferenceValues[WEB_SEARCH_PROVIDER_FIELD];
+    const selectedScraper = preferenceValues[WEB_SEARCH_SCRAPER_FIELD];
+    const selectedReranker = preferenceValues[WEB_SEARCH_RERANKER_FIELD];
+    effectiveWebSearchConfig.searchProvider = legacySearchProviders.has(selectedProvider)
+      ? (selectedProvider as SearchProviders)
+      : webSearchConfig?.searchProvider !== SearchProviders.LOCAL
+        ? webSearchConfig?.searchProvider
+        : SearchProviders.SERPER;
+    effectiveWebSearchConfig.scraperProvider = legacyScraperProviders.has(selectedScraper)
+      ? (selectedScraper as ScraperProviders)
+      : webSearchConfig?.scraperProvider !== ScraperProviders.LOCAL
+        ? webSearchConfig?.scraperProvider
+        : ScraperProviders.FIRECRAWL;
+    effectiveWebSearchConfig.rerankerType = legacyRerankerTypes.has(selectedReranker)
+      ? (selectedReranker as RerankerTypes)
+      : webSearchConfig?.rerankerType !== 'none'
+        ? webSearchConfig?.rerankerType
+        : ('jina' as RerankerTypes);
+  }
 
   /** Type-safe iterator for the category-service combinations */
   async function checkAuth<C extends TWebSearchCategories>(
@@ -124,12 +206,15 @@ export async function loadWebSearchAuth({
 
     // Check if a specific service is specified in the config
     let specificService: ServiceType | undefined;
-    if (category === SearchCategories.PROVIDERS && webSearchConfig?.searchProvider) {
-      specificService = webSearchConfig.searchProvider as unknown as ServiceType;
-    } else if (category === SearchCategories.SCRAPERS && webSearchConfig?.scraperProvider) {
-      specificService = webSearchConfig.scraperProvider as unknown as ServiceType;
-    } else if (category === SearchCategories.RERANKERS && webSearchConfig?.rerankerType) {
-      specificService = webSearchConfig.rerankerType as unknown as ServiceType;
+    if (category === SearchCategories.PROVIDERS && effectiveWebSearchConfig?.searchProvider) {
+      specificService = effectiveWebSearchConfig.searchProvider as unknown as ServiceType;
+    } else if (
+      category === SearchCategories.SCRAPERS &&
+      effectiveWebSearchConfig?.scraperProvider
+    ) {
+      specificService = effectiveWebSearchConfig.scraperProvider as unknown as ServiceType;
+    } else if (category === SearchCategories.RERANKERS && effectiveWebSearchConfig?.rerankerType) {
+      specificService = effectiveWebSearchConfig.rerankerType as unknown as ServiceType;
 
       // Special case: skipping the reranker means skipping auth as well
       if (specificService === 'none') {
@@ -168,11 +253,11 @@ export async function loadWebSearchAuth({
 
       const requiredAuthFields = extractWebSearchEnvVars({
         keys: requiredKeys,
-        config: webSearchConfig,
+        config: effectiveWebSearchConfig,
       });
       const optionalAuthFields = extractWebSearchEnvVars({
         keys: optionalKeys,
-        config: webSearchConfig,
+        config: effectiveWebSearchConfig,
       });
       if (requiredAuthFields.length !== requiredKeys.length) continue;
 
@@ -216,7 +301,11 @@ export async function loadWebSearchAuth({
             continue;
           }
 
-          if (isUserProvidedUrlEnabled && isFieldUserProvided && (await isSSRFUrl(value))) {
+          const blocksUserProvidedUrl =
+            originalKey === 'localWebSearchUrl'
+              ? !isAllowedLocalWebSearchUrl(value)
+              : await isSSRFUrl(value);
+          if (isUserProvidedUrlEnabled && isFieldUserProvided && blocksUserProvidedUrl) {
             if (!optionalSet.has(field)) {
               allFieldsAuthenticated = false;
               break;
@@ -248,7 +337,7 @@ export async function loadWebSearchAuth({
         continue;
       }
     }
-    if (category === SearchCategories.RERANKERS && !webSearchConfig?.rerankerType) {
+    if (category === SearchCategories.RERANKERS && !effectiveWebSearchConfig?.rerankerType) {
       authResult.rerankerType = 'none' as RerankerTypes;
       return [true, false];
     }
@@ -272,22 +361,25 @@ export async function loadWebSearchAuth({
   }
 
   const scraperProvider =
-    authResult.scraperProvider ?? webSearchConfig?.scraperProvider ?? ScraperProviders.FIRECRAWL;
+    authResult.scraperProvider ??
+    effectiveWebSearchConfig?.scraperProvider ??
+    ScraperProviders.FIRECRAWL;
   let scraperOptionsTimeout: number | undefined;
   if (scraperProvider === ScraperProviders.TAVILY) {
-    scraperOptionsTimeout = webSearchConfig?.tavilyScraperOptions?.timeout;
+    scraperOptionsTimeout = effectiveWebSearchConfig?.tavilyScraperOptions?.timeout;
   } else if (scraperProvider === ScraperProviders.FIRECRAWL) {
-    scraperOptionsTimeout = webSearchConfig?.firecrawlOptions?.timeout;
+    scraperOptionsTimeout = effectiveWebSearchConfig?.firecrawlOptions?.timeout;
   }
 
-  const searchProvider = authResult.searchProvider ?? webSearchConfig?.searchProvider;
+  const searchProvider = authResult.searchProvider ?? effectiveWebSearchConfig?.searchProvider;
   if (searchProvider !== SearchProviders.TAVILY) {
-    authResult.safeSearch = webSearchConfig?.safeSearch ?? SafeSearchTypes.MODERATE;
+    authResult.safeSearch = effectiveWebSearchConfig?.safeSearch ?? SafeSearchTypes.MODERATE;
   }
-  authResult.scraperTimeout = webSearchConfig?.scraperTimeout ?? scraperOptionsTimeout ?? 7500;
-  authResult.firecrawlOptions = webSearchConfig?.firecrawlOptions;
-  authResult.tavilySearchOptions = webSearchConfig?.tavilySearchOptions;
-  authResult.tavilyScraperOptions = webSearchConfig?.tavilyScraperOptions;
+  authResult.scraperTimeout =
+    effectiveWebSearchConfig?.scraperTimeout ?? scraperOptionsTimeout ?? 7500;
+  authResult.firecrawlOptions = effectiveWebSearchConfig?.firecrawlOptions;
+  authResult.tavilySearchOptions = effectiveWebSearchConfig?.tavilySearchOptions;
+  authResult.tavilyScraperOptions = effectiveWebSearchConfig?.tavilyScraperOptions;
 
   return {
     authTypes,

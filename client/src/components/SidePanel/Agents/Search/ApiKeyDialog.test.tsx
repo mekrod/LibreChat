@@ -32,6 +32,7 @@ const defaultProps = {
   ],
   isToolAuthenticated: false,
   register: mockRegister as any,
+  setValue: jest.fn(),
   handleSubmit: (fn: any) => (e: any) => fn(e),
 };
 
@@ -40,9 +41,23 @@ describe('ApiKeyDialog', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  it('shows all dropdowns and both reranker fields when no config is set', () => {
+  const switchToLegacy = () => {
+    fireEvent.click(screen.getByText('com_ui_web_search_mode_legacy'));
+  };
+
+  it('defaults to local helper mode', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: {} });
     render(<ApiKeyDialog {...defaultProps} />);
+    expect(screen.getByText('com_ui_web_search_provider_local')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('com_ui_web_search_local_url')).toBeInTheDocument();
+    expect(screen.queryByText('com_ui_web_search_scraper')).not.toBeInTheDocument();
+    expect(screen.queryByText('com_ui_web_search_reranker')).not.toBeInTheDocument();
+  });
+
+  it('shows all old dropdowns and both reranker fields in legacy mode', () => {
+    mockUseGetStartupConfig.mockReturnValue({ data: {} });
+    render(<ApiKeyDialog {...defaultProps} />);
+    switchToLegacy();
     // Provider dropdown button
     expect(
       screen.getByRole('button', { name: 'com_ui_web_search_provider_serper' }),
@@ -65,9 +80,10 @@ describe('ApiKeyDialog', () => {
   it('shows static text for provider and only provider input if provider is set', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: { webSearch: { searchProvider: 'serper' } } });
     render(<ApiKeyDialog {...defaultProps} />);
-    expect(screen.getByText('com_ui_web_search_provider_serper')).toBeInTheDocument();
-    // Should not find a dropdown button for provider
-    expect(screen.queryByRole('button', { name: /provider/i })).not.toBeInTheDocument();
+    switchToLegacy();
+    expect(
+      screen.getByRole('button', { name: 'com_ui_web_search_provider_serper' }),
+    ).toBeInTheDocument();
   });
 
   it('shows only Jina reranker field if rerankerType is set to jina', () => {
@@ -75,6 +91,7 @@ describe('ApiKeyDialog', () => {
       data: { webSearch: { rerankerType: RerankerTypes.JINA } },
     });
     render(<ApiKeyDialog {...defaultProps} />);
+    switchToLegacy();
     expect(screen.getByPlaceholderText('com_ui_web_search_jina_key')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('com_ui_web_search_cohere_key')).not.toBeInTheDocument();
   });
@@ -84,6 +101,7 @@ describe('ApiKeyDialog', () => {
       data: { webSearch: { rerankerType: RerankerTypes.COHERE } },
     });
     render(<ApiKeyDialog {...defaultProps} />);
+    switchToLegacy();
     expect(screen.getByPlaceholderText('com_ui_web_search_cohere_key')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('com_ui_web_search_jina_key')).not.toBeInTheDocument();
   });
@@ -91,6 +109,7 @@ describe('ApiKeyDialog', () => {
   it('shows documentation link for the visible reranker', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: {} });
     render(<ApiKeyDialog {...defaultProps} />);
+    switchToLegacy();
     // Default is Jina
     expect(screen.getByText('com_ui_web_search_reranker_jina_key')).toBeInTheDocument();
     // Switch to Cohere
@@ -98,7 +117,7 @@ describe('ApiKeyDialog', () => {
     expect(screen.getByText('com_ui_web_search_reranker_cohere_key')).toBeInTheDocument();
   });
 
-  it('does not render provider section if SYSTEM_DEFINED', () => {
+  it('renders old provider section in legacy mode even if current config is system defined', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: {} });
     const props = {
       ...defaultProps,
@@ -109,12 +128,13 @@ describe('ApiKeyDialog', () => {
       ] as [string, AuthType][],
     };
     render(<ApiKeyDialog {...props} />);
-    expect(screen.queryByText('com_ui_web_search_provider')).not.toBeInTheDocument();
+    switchToLegacy();
+    expect(screen.getByText('com_ui_web_search_provider')).toBeInTheDocument();
     expect(screen.getByText('com_ui_web_search_scraper')).toBeInTheDocument();
     expect(screen.getByText('com_ui_web_search_reranker')).toBeInTheDocument();
   });
 
-  it('does not render scraper section if SYSTEM_DEFINED', () => {
+  it('renders old scraper section in legacy mode even if current config is system defined', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: {} });
     const props = {
       ...defaultProps,
@@ -125,12 +145,13 @@ describe('ApiKeyDialog', () => {
       ] as [string, AuthType][],
     };
     render(<ApiKeyDialog {...props} />);
+    switchToLegacy();
     expect(screen.getByText('com_ui_web_search_provider')).toBeInTheDocument();
-    expect(screen.queryByText('com_ui_web_search_scraper')).not.toBeInTheDocument();
+    expect(screen.getByText('com_ui_web_search_scraper')).toBeInTheDocument();
     expect(screen.getByText('com_ui_web_search_reranker')).toBeInTheDocument();
   });
 
-  it('does not render reranker section if SYSTEM_DEFINED', () => {
+  it('renders old reranker section in legacy mode even if current config is system defined', () => {
     mockUseGetStartupConfig.mockReturnValue({ data: {} });
     const props = {
       ...defaultProps,
@@ -141,8 +162,9 @@ describe('ApiKeyDialog', () => {
       ] as [string, AuthType][],
     };
     render(<ApiKeyDialog {...props} />);
+    switchToLegacy();
     expect(screen.getByText('com_ui_web_search_provider')).toBeInTheDocument();
     expect(screen.getByText('com_ui_web_search_scraper')).toBeInTheDocument();
-    expect(screen.queryByText('com_ui_web_search_reranker')).not.toBeInTheDocument();
+    expect(screen.getByText('com_ui_web_search_reranker')).toBeInTheDocument();
   });
 });

@@ -4,6 +4,8 @@ export type TWebSearchKeys =
   | 'serperApiKey'
   | 'searxngInstanceUrl'
   | 'searxngApiKey'
+  | 'localWebSearchUrl'
+  | 'localWebSearchToken'
   | 'firecrawlApiKey'
   | 'firecrawlApiUrl'
   | 'firecrawlVersion'

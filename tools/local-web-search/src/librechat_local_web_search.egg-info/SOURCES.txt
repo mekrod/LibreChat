@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+src/librechat_local_web_search.egg-info/PKG-INFO
+src/librechat_local_web_search.egg-info/SOURCES.txt
+src/librechat_local_web_search.egg-info/dependency_links.txt
+src/librechat_local_web_search.egg-info/entry_points.txt
+src/librechat_local_web_search.egg-info/requires.txt
+src/librechat_local_web_search.egg-info/top_level.txt
+src/local_web_search/__init__.py
+src/local_web_search/app.py
