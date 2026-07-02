@@ -50,6 +50,7 @@ import {
   registerFileAuthoringTools,
   isFileAuthoringToolDefinition,
 } from './tools';
+import { getMiniAppCustomization, registerMiniAppCodeAgentTools } from './miniapps';
 import { filterFilesByEndpointConfig } from '~/files';
 import { generateArtifactsPrompt, miniAppsPrompt } from '~/prompts';
 import { getProviderConfig } from '~/endpoints';
@@ -1166,6 +1167,28 @@ export async function initializeAgent(
     appendAdditionalInstructions(agent, artifactsPromptResult);
   }
   appendAdditionalInstructions(agent, miniAppsPrompt);
+  const miniAppCustomization = getMiniAppCustomization(req.body as Record<string, unknown>);
+  if (miniAppCustomization) {
+    const miniAppToolResult = registerMiniAppCodeAgentTools({
+      toolRegistry,
+      toolDefinitions,
+    });
+    toolDefinitions = miniAppToolResult.toolDefinitions;
+    const customizationAction =
+      miniAppCustomization.action === 'erase_feature'
+        ? 'remove the requested feature'
+        : 'add the requested feature';
+    appendAdditionalInstructions(
+      agent,
+      [
+        '# Mini app code-agent mode',
+        `The current user is customizing the saved mini app "${miniAppCustomization.miniAppTitle || miniAppCustomization.miniAppId}" (${miniAppCustomization.miniAppId}).`,
+        `Use the mini_app_* tools to inspect the current file list, read the relevant files, and update the saved app in place to ${customizationAction}.`,
+        'Do not output a new miniapp manifest or fenced source bundle for this customization turn. The mini_app_write_file, mini_app_delete_file, and mini_app_update_metadata tools persist changes directly.',
+        'Continue reading and editing files as needed until the saved app is updated, then summarize what changed.',
+      ].join('\n'),
+    );
+  }
 
   let skillCount = 0;
   /**

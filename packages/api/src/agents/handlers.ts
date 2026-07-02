@@ -2,6 +2,7 @@ import yaml from 'js-yaml';
 import { Types } from 'mongoose';
 import { logger } from '@librechat/data-schemas';
 import { GraphEvents, Constants } from '@librechat/agents';
+import type { IMiniApp } from '@librechat/data-schemas';
 import type {
   LCTool,
   EventHandler,
@@ -12,6 +13,11 @@ import type {
   ToolExecuteBatchRequest,
 } from '@librechat/agents';
 import type { StructuredToolInterface } from '@librechat/agents/langchain/tools';
+import {
+  MINI_APP_FILE_PATH_MAX_LENGTH,
+  MINI_APP_TOTAL_CONTENT_MAX_LENGTH,
+  MINI_APP_FILE_CONTENT_MAX_LENGTH,
+} from 'librechat-data-provider';
 import type { CodeEnvRef } from 'librechat-data-provider';
 import type { SkillFileRecord } from './skillFiles';
 import type { ServerRequest } from '~/types';
@@ -21,6 +27,15 @@ import {
   HOST_FILE_AUTHORING_ARTIFACT_KEY,
   isCodeSessionToolName,
 } from './tools';
+import {
+  MINI_APP_READ_FILE_TOOL_NAME,
+  MINI_APP_LIST_FILES_TOOL_NAME,
+  MINI_APP_WRITE_FILE_TOOL_NAME,
+  MINI_APP_DELETE_FILE_TOOL_NAME,
+  MINI_APP_UPDATE_METADATA_TOOL_NAME,
+  isMiniAppCodeAgentToolName,
+  getMiniAppCustomization,
+} from './miniapps';
 import { logAxiosError, runOutsideTracing } from '~/utils';
 import { parseFrontmatter } from '../skills/import';
 import { buildSkillPrimeMessage } from './skills';
@@ -252,6 +267,17 @@ export interface ToolExecuteOptions {
     session_id?: string;
     files?: Array<{ id: string; name: string; storage_session_id?: string; session_id?: string }>;
   } | null>;
+  getMiniApp?: (user: string, miniAppId: string) => Promise<IMiniApp | null>;
+  updateMiniApp?: (
+    user: string,
+    miniAppId: string,
+    input: {
+      title?: string;
+      description?: string;
+      files?: Record<string, string>;
+      entryFile?: string;
+    },
+  ) => Promise<IMiniApp | null>;
 }
 
 const MAX_READABLE_BYTES = 262_144;
@@ -541,6 +567,245 @@ function successResult(
     result.artifact = artifact;
   }
   return result;
+}
+
+const MINI_APP_RELATIVE_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[a-zA-Z0-9._\-/]+$/;
+
+function miniAppFilesToMap(files: IMiniApp['files']): Record<string, string> {
+  if (Array.isArray(files)) {
+    return Object.fromEntries(
+      files
+        .filter((file) => typeof file.path === 'string' && typeof file.content === 'string')
+        .map((file) => [file.path, file.content]),
+    );
+  }
+  if (files instanceof Map) {
+    return Object.fromEntries(files.entries());
+  }
+  return files ?? {};
+}
+
+function getStringArg(args: unknown, key: string): string {
+  if (!args || typeof args !== 'object') {
+    return '';
+  }
+  const value = (args as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizeMiniAppPath(path: string): string | null {
+  const trimmed = path.trim();
+  if (
+    !trimmed ||
+    trimmed.length > MINI_APP_FILE_PATH_MAX_LENGTH ||
+    !MINI_APP_RELATIVE_PATH_PATTERN.test(trimmed)
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+function getMiniAppContext(req?: ServerRequest): { userId: string; miniAppId: string } | null {
+  const customization = getMiniAppCustomization(req?.body as Record<string, unknown> | undefined);
+  if (!customization || !req?.user?.id) {
+    return null;
+  }
+  return {
+    userId: req.user.id,
+    miniAppId: customization.miniAppId,
+  };
+}
+
+async function loadMiniAppForTool(
+  tc: ToolCallRequest,
+  options: ToolExecuteOptions,
+  req?: ServerRequest,
+): Promise<
+  { status: 'loaded'; miniApp: IMiniApp; files: Record<string, string> } | ToolExecuteResult
+> {
+  const context = getMiniAppContext(req);
+  if (!context) {
+    return errorResult(tc, 'Mini app code-agent tools require a selected mini app.');
+  }
+  if (!options.getMiniApp) {
+    return errorResult(tc, 'Mini app loading is not configured.');
+  }
+  const miniApp = await options.getMiniApp(context.userId, context.miniAppId);
+  if (!miniApp) {
+    return errorResult(tc, 'Selected mini app was not found.');
+  }
+  return { status: 'loaded', miniApp, files: miniAppFilesToMap(miniApp.files) };
+}
+
+function validateMiniAppFiles(files: Record<string, string>): string | null {
+  const total = Object.values(files).reduce((sum, content) => sum + content.length, 0);
+  if (Object.keys(files).length === 0) {
+    return 'Mini app must keep at least one file.';
+  }
+  if (total === 0) {
+    return 'Mini app files cannot all be empty.';
+  }
+  if (total > MINI_APP_TOTAL_CONTENT_MAX_LENGTH) {
+    return `Mini app files are too large (${total} characters, limit: ${MINI_APP_TOTAL_CONTENT_MAX_LENGTH}).`;
+  }
+  return null;
+}
+
+async function updateMiniAppForTool({
+  tc,
+  files,
+  input,
+  options,
+  req,
+}: {
+  tc: ToolCallRequest;
+  files?: Record<string, string>;
+  input?: { title?: string; description?: string; entryFile?: string };
+  options: ToolExecuteOptions;
+  req?: ServerRequest;
+}): Promise<ToolExecuteResult | null> {
+  const context = getMiniAppContext(req);
+  if (!context) {
+    return errorResult(tc, 'Mini app code-agent tools require a selected mini app.');
+  }
+  if (!options.updateMiniApp) {
+    return errorResult(tc, 'Mini app updating is not configured.');
+  }
+  if (files) {
+    const validationError = validateMiniAppFiles(files);
+    if (validationError) {
+      return errorResult(tc, validationError);
+    }
+  }
+  const updated = await options.updateMiniApp(context.userId, context.miniAppId, {
+    ...(input ?? {}),
+    ...(files ? { files } : {}),
+  });
+  if (!updated) {
+    return errorResult(tc, 'Selected mini app could not be updated.');
+  }
+  return null;
+}
+
+async function handleMiniAppToolCall(
+  tc: ToolCallRequest,
+  options: ToolExecuteOptions,
+  req?: ServerRequest,
+): Promise<ToolExecuteResult> {
+  const loaded = await loadMiniAppForTool(tc, options, req);
+  if (loaded.status !== 'loaded') {
+    return loaded;
+  }
+
+  if (tc.name === MINI_APP_LIST_FILES_TOOL_NAME) {
+    const lines = Object.entries(loaded.files)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([path, content]) => `- ${path} (${content.length} chars)`);
+    return successResult(
+      tc,
+      [
+        `Mini app: ${loaded.miniApp.title}`,
+        `Entry file: ${loaded.miniApp.entryFile}`,
+        'Files:',
+        ...lines,
+      ].join('\n'),
+    );
+  }
+
+  if (tc.name === MINI_APP_READ_FILE_TOOL_NAME) {
+    const path = normalizeMiniAppPath(getStringArg(tc.args, 'path'));
+    if (!path) {
+      return errorResult(tc, 'Valid relative file path is required.');
+    }
+    const content = loaded.files[path];
+    if (content == null) {
+      return errorResult(tc, `Mini app file "${path}" was not found.`);
+    }
+    return successResult(tc, `File: ${path}\n\n${addLineNumbers(content)}`);
+  }
+
+  if (tc.name === MINI_APP_WRITE_FILE_TOOL_NAME) {
+    const path = normalizeMiniAppPath(getStringArg(tc.args, 'path'));
+    const content = getStringArg(tc.args, 'content');
+    if (!path) {
+      return errorResult(tc, 'Valid relative file path is required.');
+    }
+    if (content.length > MINI_APP_FILE_CONTENT_MAX_LENGTH) {
+      return errorResult(
+        tc,
+        `File "${path}" is too large (${content.length} characters, limit: ${MINI_APP_FILE_CONTENT_MAX_LENGTH}).`,
+      );
+    }
+    const nextFiles = { ...loaded.files, [path]: content };
+    const updateError = await updateMiniAppForTool({ tc, files: nextFiles, options, req });
+    if (updateError) {
+      return updateError;
+    }
+    const oldContent = loaded.files[path];
+    const diff =
+      oldContent != null
+        ? createUnifiedDiff(path, oldContent, content)
+        : createUnifiedDiff(path, '', content);
+    return successResult(
+      tc,
+      [`Saved ${path} (${content.length} chars) to the selected mini app.`, diff]
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+  }
+
+  if (tc.name === MINI_APP_DELETE_FILE_TOOL_NAME) {
+    const path = normalizeMiniAppPath(getStringArg(tc.args, 'path'));
+    if (!path) {
+      return errorResult(tc, 'Valid relative file path is required.');
+    }
+    if (loaded.files[path] == null) {
+      return errorResult(tc, `Mini app file "${path}" was not found.`);
+    }
+    const nextFiles = { ...loaded.files };
+    delete nextFiles[path];
+    const entryFile =
+      loaded.miniApp.entryFile === path ? Object.keys(nextFiles)[0] : loaded.miniApp.entryFile;
+    const updateError = await updateMiniAppForTool({
+      tc,
+      files: nextFiles,
+      input: entryFile ? { entryFile } : undefined,
+      options,
+      req,
+    });
+    if (updateError) {
+      return updateError;
+    }
+    return successResult(tc, `Deleted ${path} from the selected mini app.`);
+  }
+
+  if (tc.name === MINI_APP_UPDATE_METADATA_TOOL_NAME) {
+    const title = getStringArg(tc.args, 'title').trim();
+    const description = getStringArg(tc.args, 'description').trim();
+    const entryFileRaw = getStringArg(tc.args, 'entryFile');
+    const entryFile = entryFileRaw ? normalizeMiniAppPath(entryFileRaw) : null;
+    if (entryFileRaw && !entryFile) {
+      return errorResult(tc, 'Valid relative entry file path is required.');
+    }
+    if (entryFile && loaded.files[entryFile] == null) {
+      return errorResult(tc, `Entry file "${entryFile}" was not found.`);
+    }
+    const input = {
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(entryFile ? { entryFile } : {}),
+    };
+    if (Object.keys(input).length === 0) {
+      return successResult(tc, 'No mini app metadata changes were requested.');
+    }
+    const updateError = await updateMiniAppForTool({ tc, input, options, req });
+    if (updateError) {
+      return updateError;
+    }
+    return successResult(tc, 'Updated selected mini app metadata.');
+  }
+
+  return errorResult(tc, `Tool ${tc.name} not found`);
 }
 
 function guessMimeType(filename: string): string {
@@ -3204,7 +3469,8 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
                   if (
                     tc.name === Constants.SKILL_TOOL ||
                     tc.name === Constants.READ_FILE ||
-                    isFileAuthoringCall
+                    isFileAuthoringCall ||
+                    isMiniAppCodeAgentToolName(tc.name)
                   ) {
                     const req = mergedConfigurable?.req as ServerRequest | undefined;
                     let handlerResult: ToolExecuteResult;
@@ -3240,6 +3506,8 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
                           req,
                           sandboxContext,
                         );
+                      } else if (isMiniAppCodeAgentToolName(tc.name)) {
+                        handlerResult = await handleMiniAppToolCall(tc, options, req);
                       } else {
                         handlerResult = errorResult(tc, `Tool ${tc.name} not found`);
                       }

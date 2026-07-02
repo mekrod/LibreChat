@@ -6,6 +6,11 @@ import type {
   ToolCallRequest,
 } from '@librechat/agents';
 import { createToolExecuteHandler, ToolExecuteOptions } from './handlers';
+import {
+  MINI_APP_LIST_FILES_TOOL_NAME,
+  MINI_APP_READ_FILE_TOOL_NAME,
+  MINI_APP_WRITE_FILE_TOOL_NAME,
+} from './miniapps';
 
 function createMockTool(
   name: string,
@@ -419,6 +424,108 @@ describe('createToolExecuteHandler', () => {
       expect(capturedArgs).toEqual([{ custom: true }]);
       expect(capturedConfigs[0].session_id).toBeUndefined();
       expect(capturedConfigs[0]._injected_files).toBeUndefined();
+    });
+  });
+
+  describe('mini app code-agent tools', () => {
+    function makeMiniAppHandler(params: {
+      req?: unknown;
+      getMiniApp?: jest.Mock;
+      updateMiniApp?: jest.Mock;
+    }) {
+      const loadTools: ToolExecuteOptions['loadTools'] = jest.fn(async () => ({
+        loadedTools: [],
+        configurable: { req: params.req },
+      }));
+      return createToolExecuteHandler({
+        loadTools,
+        getMiniApp: params.getMiniApp as unknown as ToolExecuteOptions['getMiniApp'],
+        updateMiniApp: params.updateMiniApp as unknown as ToolExecuteOptions['updateMiniApp'],
+      });
+    }
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        miniAppCustomization: {
+          enabled: true,
+          miniAppId: 'app-1',
+          action: 'add_feature',
+        },
+      },
+    };
+
+    it('lists and reads files from the selected saved mini app', async () => {
+      const getMiniApp = jest.fn(async () => ({
+        _id: 'app-1',
+        title: 'Demo app',
+        entryFile: 'src/App.jsx',
+        files: {
+          'src/App.jsx': 'export default function App() {\n  return <main />;\n}\n',
+          'src/styles.css': 'main { color: red; }\n',
+        },
+      }));
+      const handler = makeMiniAppHandler({ req, getMiniApp });
+
+      const [listResult, readResult] = await invokeHandler(handler, [
+        { id: 'call_list', name: MINI_APP_LIST_FILES_TOOL_NAME, args: {} },
+        {
+          id: 'call_read',
+          name: MINI_APP_READ_FILE_TOOL_NAME,
+          args: { path: 'src/App.jsx' },
+        },
+      ]);
+
+      expect(listResult.status).toBe('success');
+      expect(listResult.content).toContain('Mini app: Demo app');
+      expect(listResult.content).toContain('- src/App.jsx');
+      expect(readResult.status).toBe('success');
+      expect(readResult.content).toContain('1 | export default function App()');
+      expect(getMiniApp).toHaveBeenCalledWith('user-1', 'app-1');
+    });
+
+    it('persists complete file replacements to the selected saved mini app', async () => {
+      const getMiniApp = jest.fn(async () => ({
+        _id: 'app-1',
+        title: 'Demo app',
+        entryFile: 'src/App.jsx',
+        files: {
+          'src/App.jsx': 'old content\n',
+          'src/styles.css': 'main { color: red; }\n',
+        },
+      }));
+      const updateMiniApp = jest.fn(async () => ({ _id: 'app-1' }));
+      const handler = makeMiniAppHandler({ req, getMiniApp, updateMiniApp });
+
+      const [result] = await invokeHandler(handler, [
+        {
+          id: 'call_write',
+          name: MINI_APP_WRITE_FILE_TOOL_NAME,
+          args: { path: 'src/App.jsx', content: 'new content\n' },
+        },
+      ]);
+
+      expect(result.status).toBe('success');
+      expect(result.content).toContain('Saved src/App.jsx');
+      expect(result.content).toContain('-old content');
+      expect(result.content).toContain('+new content');
+      expect(updateMiniApp).toHaveBeenCalledWith('user-1', 'app-1', {
+        files: {
+          'src/App.jsx': 'new content\n',
+          'src/styles.css': 'main { color: red; }\n',
+        },
+      });
+    });
+
+    it('fails when no customization target is selected', async () => {
+      const handler = makeMiniAppHandler({ req: { user: { id: 'user-1' }, body: {} } });
+
+      const [result] = await invokeHandler(handler, [
+        { id: 'call_list', name: MINI_APP_LIST_FILES_TOOL_NAME, args: {} },
+      ]);
+
+      expect(result.status).toBe('error');
+      expect(result.errorMessage).toBe('Mini app code-agent tools require a selected mini app.');
     });
   });
 

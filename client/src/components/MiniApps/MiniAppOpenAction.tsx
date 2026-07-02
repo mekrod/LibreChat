@@ -1,10 +1,12 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useRecoilValue } from 'recoil';
 import { AppWindow } from 'lucide-react';
 import { Button, useToastContext } from '@librechat/client';
-import { useCreateMiniAppMutation } from '~/data-provider';
+import { useCreateMiniAppMutation, useUpdateMiniAppMutation } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 import { useMessageContext } from '~/Providers';
+import store from '~/store';
 import { getMiniAppBundleStorageKey, parseAnyMiniAppBundle } from './runtime';
 
 function tryParseMiniAppBundle(text: string) {
@@ -39,9 +41,13 @@ function getErrorMessage(error: unknown): string | null {
 const MiniAppOpenAction = memo(function MiniAppOpenAction({ text }: { text: string }) {
   const localize = useLocalize();
   const navigate = useNavigate();
-  const { isLatestMessage = false, isSubmitting = false } = useMessageContext();
+  const { index = 0, isLatestMessage = false, isSubmitting = false } = useMessageContext();
   const { showToast } = useToastContext();
   const createMutation = useCreateMiniAppMutation();
+  const updateMutation = useUpdateMiniAppMutation();
+  const customization = useRecoilValue(store.miniAppCustomizationByIndex(index));
+  const customizationMiniAppId =
+    customization.enabled && customization.miniAppId ? customization.miniAppId : null;
   const [miniAppId, setMiniAppId] = React.useState<string | null>(null);
   const [createError, setCreateError] = React.useState(false);
   const isStreamingLatestMessage = isLatestMessage && isSubmitting;
@@ -80,25 +86,32 @@ const MiniAppOpenAction = memo(function MiniAppOpenAction({ text }: { text: stri
     if (!bundle || isStreamingLatestMessage || typeof window === 'undefined') {
       return;
     }
+    if (customizationMiniAppId) {
+      setMiniAppId(customizationMiniAppId);
+      return;
+    }
 
     const savedMiniAppId = window.localStorage.getItem(storageKey);
     if (savedMiniAppId) {
       setMiniAppId(savedMiniAppId);
     }
-  }, [bundle, isStreamingLatestMessage, storageKey]);
+  }, [bundle, customizationMiniAppId, isStreamingLatestMessage, storageKey]);
 
   useEffect(() => {
+    const operationKey = customizationMiniAppId
+      ? `${customizationMiniAppId}:${storageKey}`
+      : storageKey;
     if (
       !bundle ||
       isStreamingLatestMessage ||
-      miniAppId ||
+      (!customizationMiniAppId && miniAppId) ||
       createError ||
-      startedKeyRef.current === storageKey
+      startedKeyRef.current === operationKey
     ) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
+    if (!customizationMiniAppId && typeof window !== 'undefined') {
       const savedMiniAppId = window.localStorage.getItem(storageKey);
       if (savedMiniAppId) {
         setMiniAppId(savedMiniAppId);
@@ -111,13 +124,15 @@ const MiniAppOpenAction = memo(function MiniAppOpenAction({ text }: { text: stri
     }
 
     saveTimerRef.current = window.setTimeout(() => {
-      startedKeyRef.current = storageKey;
+      startedKeyRef.current = operationKey;
       setCreateError(false);
-      createMutation
-        .mutateAsync(bundle)
+      const savePromise = customizationMiniAppId
+        ? updateMutation.mutateAsync({ id: customizationMiniAppId, payload: bundle })
+        : createMutation.mutateAsync(bundle);
+      savePromise
         .then((miniApp) => {
           setMiniAppId(miniApp._id);
-          if (typeof window !== 'undefined') {
+          if (!customizationMiniAppId && typeof window !== 'undefined') {
             window.localStorage.setItem(storageKey, miniApp._id);
           }
         })
@@ -143,11 +158,13 @@ const MiniAppOpenAction = memo(function MiniAppOpenAction({ text }: { text: stri
     bundle,
     createError,
     createMutation,
+    customizationMiniAppId,
     isStreamingLatestMessage,
     localize,
     miniAppId,
     showToast,
     storageKey,
+    updateMutation,
   ]);
 
   if (!bundle || isStreamingLatestMessage) {
@@ -169,7 +186,9 @@ const MiniAppOpenAction = memo(function MiniAppOpenAction({ text }: { text: stri
         size="sm"
         variant="outline"
         onClick={openMiniApp}
-        disabled={(!miniAppId && !createError) || createMutation.isLoading}
+        disabled={
+          (!miniAppId && !createError) || createMutation.isLoading || updateMutation.isLoading
+        }
       >
         <AppWindow className="mr-2 h-4 w-4" aria-hidden="true" />
         {miniAppId

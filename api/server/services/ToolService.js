@@ -28,6 +28,7 @@ const {
   buildMCPAuthRunStepDeltaEvent,
   buildMCPAuthRunStepCompletedEvent,
   isFileAuthoringToolDefinition,
+  isMiniAppCodeAgentToolName,
 } = require('@librechat/api');
 const {
   Time,
@@ -1539,6 +1540,7 @@ async function loadToolsForExecution({
     AgentConstants.SKILL_TOOL,
     AgentConstants.READ_FILE,
     ...fileAuthoringToolNames,
+    ...toolNames.filter(isMiniAppCodeAgentToolName),
   ]);
 
   let ptcOrchestratedToolNames = [];

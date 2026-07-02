@@ -861,6 +861,14 @@ export default function useEventHandlers({
             navigate(`/c/${conversation.conversationId}`, { replace: true });
           }
         }
+
+        if (submission.miniAppCustomization?.miniAppId) {
+          queryClient.invalidateQueries([
+            QueryKeys.miniApp,
+            submission.miniAppCustomization.miniAppId,
+          ]);
+          queryClient.invalidateQueries([QueryKeys.miniApps]);
+        }
       } finally {
         setShowStopButton(false);
         setIsSubmitting(false);

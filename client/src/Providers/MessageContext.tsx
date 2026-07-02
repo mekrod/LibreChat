@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 
 type MessageContext = {
   messageId: string;
+  index?: number;
   nextType?: string;
   partIndex?: number;
   isExpanded: boolean;

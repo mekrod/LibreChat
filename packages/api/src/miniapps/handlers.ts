@@ -79,6 +79,11 @@ function parseLimit(raw: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function getMiniAppId(req: ServerRequest): string {
+  const params = req.params as { id?: string } | undefined;
+  return params?.id ?? '';
+}
+
 function normalizeRequestFiles(
   files: TCreateMiniAppRequest['files'] | TUpdateMiniAppRequest['files'],
 ): MiniAppFileMap | undefined {
@@ -155,7 +160,7 @@ export function createMiniAppHandlers(deps: MiniAppHandlersDeps): {
       if (!req.user?.id) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      const miniApp = await getMiniApp(req.user.id, req.params.id);
+      const miniApp = await getMiniApp(req.user.id, getMiniAppId(req));
       if (!miniApp) {
         return res.status(404).json({ error: 'Mini app not found' });
       }
@@ -172,14 +177,10 @@ export function createMiniAppHandlers(deps: MiniAppHandlersDeps): {
         return res.status(401).json({ error: 'Authentication required' });
       }
       const body = (req.body ?? {}) as TUpdateMiniAppRequest;
-      const miniApp = await updateMiniApp(
-        req.user.id,
-        req.params.id,
-        {
-          ...body,
-          files: normalizeRequestFiles(body.files),
-        },
-      );
+      const miniApp = await updateMiniApp(req.user.id, getMiniAppId(req), {
+        ...body,
+        files: normalizeRequestFiles(body.files),
+      });
       if (!miniApp) {
         return res.status(404).json({ error: 'Mini app not found' });
       }
@@ -197,11 +198,12 @@ export function createMiniAppHandlers(deps: MiniAppHandlersDeps): {
       if (!req.user?.id) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      const result = await deleteMiniApp(req.user.id, req.params.id);
+      const miniAppId = getMiniAppId(req);
+      const result = await deleteMiniApp(req.user.id, miniAppId);
       if (result.deletedCount === 0) {
         return res.status(404).json({ error: 'Mini app not found' });
       }
-      const response: TDeleteMiniAppResponse = { id: req.params.id, deleted: true };
+      const response: TDeleteMiniAppResponse = { id: miniAppId, deleted: true };
       return res.status(200).json(response);
     } catch (error) {
       logger.error('[DELETE /mini-apps/:id] Error deleting mini app', error);

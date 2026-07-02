@@ -110,6 +110,16 @@ export type TEphemeralAgent = {
   skills?: boolean;
 };
 
+export type MiniAppCustomizationAction = 'add_feature' | 'erase_feature';
+
+export type TMiniAppCustomizationRequest = {
+  enabled: boolean;
+  miniAppId: string;
+  miniAppTitle?: string;
+  miniAppDescription?: string;
+  action: MiniAppCustomizationAction;
+};
+
 export type TPayload = Partial<TMessage> &
   Partial<TEndpointOption> & {
     isContinued: boolean;
@@ -128,6 +138,7 @@ export type TPayload = Partial<TMessage> &
      * before the LLM turn runs.
      */
     manualSkills?: string[];
+    miniAppCustomization?: TMiniAppCustomizationRequest;
     /** Browser IANA timezone (e.g. `America/New_York`) used to resolve local-time prompt variables server-side. */
     timezone?: string;
   };
@@ -163,6 +174,7 @@ export type TSubmission = {
   addedConvo?: TConversation;
   /** Skills the user invoked via the `$` popover for this submission. */
   manualSkills?: string[];
+  miniAppCustomization?: TMiniAppCustomizationRequest;
 };
 
 export type EventSubmission = Omit<TSubmission, 'initialResponse'> & { initialResponse: TMessage };

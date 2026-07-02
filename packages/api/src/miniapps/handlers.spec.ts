@@ -42,7 +42,7 @@ describe('mini app handlers', () => {
           { path: 'src/styles.css', content: '.app { min-height: 100vh; }' },
         ],
       },
-    } as ServerRequest;
+    } as unknown as ServerRequest;
     const res = createResponse();
 
     await handlers.create(req, res);

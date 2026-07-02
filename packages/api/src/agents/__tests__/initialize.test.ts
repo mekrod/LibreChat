@@ -39,6 +39,13 @@ import type { Agent } from 'librechat-data-provider';
 import type { ServerRequest, InitializeResultBase, EndpointTokenConfig } from '~/types';
 import type { InitializeAgentDbMethods } from '../initialize';
 import { DEFAULT_MAX_CONTEXT_TOKENS } from '../initialize';
+import {
+  MINI_APP_LIST_FILES_TOOL_NAME,
+  MINI_APP_READ_FILE_TOOL_NAME,
+  MINI_APP_WRITE_FILE_TOOL_NAME,
+  MINI_APP_DELETE_FILE_TOOL_NAME,
+  MINI_APP_UPDATE_METADATA_TOOL_NAME,
+} from '../miniapps';
 
 // Mock logger — `format` must be a callable factory so @librechat/data-schemas
 // dist module-load completes cleanly; see api/test/__mocks__/logger.js.
@@ -1605,6 +1612,47 @@ describe('initializeAgent — skill `allowed-tools` union (Phase 6)', () => {
 describe('initializeAgent — execute_code capability expansion', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('registers mini-app code-agent tools and in-place instructions for customization turns', async () => {
+    const { agent, req, res, loadTools, db } = createMocks();
+    req.body = {
+      miniAppCustomization: {
+        enabled: true,
+        miniAppId: 'mini-app-1',
+        miniAppTitle: 'Pomodoro Timer',
+        action: 'add_feature',
+      },
+    } as ServerRequest['body'];
+
+    const result = await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([Providers.OPENAI]),
+        isInitialAgent: true,
+        codeEnvAvailable: false,
+      },
+      db,
+    );
+
+    const names = (result.toolDefinitions ?? []).map((d) => d.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        MINI_APP_LIST_FILES_TOOL_NAME,
+        MINI_APP_READ_FILE_TOOL_NAME,
+        MINI_APP_WRITE_FILE_TOOL_NAME,
+        MINI_APP_DELETE_FILE_TOOL_NAME,
+        MINI_APP_UPDATE_METADATA_TOOL_NAME,
+      ]),
+    );
+    expect(result.additional_instructions).toContain('Mini app code-agent mode');
+    expect(result.additional_instructions).toContain('Pomodoro Timer');
+    expect(result.additional_instructions).toContain('update the saved app in place');
+    expect(result.additional_instructions).toContain('Do not output a new miniapp manifest');
   });
 
   it('expands execute_code into bash_tool + read_file when codeEnvAvailable=true', async () => {

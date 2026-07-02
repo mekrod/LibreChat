@@ -374,6 +374,8 @@ export type TOptions = {
   overrideQuotes?: string[];
   /** Added conversation for multi-convo feature - sent to server as part of submission payload */
   addedConvo?: t.TConversation;
+  /** Scoped mini app edit context for code-agent style customization turns. */
+  miniAppCustomization?: t.TMiniAppCustomizationRequest;
 };
 
 export type TAskFunction = (props: TAskProps, options?: TOptions) => false | void;

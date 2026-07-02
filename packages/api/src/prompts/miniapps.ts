@@ -3,6 +3,7 @@ import dedent from 'dedent';
 export const miniAppsPrompt: string = dedent`
 # LibreChat mini apps
 - If the user asks to make, build, create, or generate an app, mini app, tracker, dashboard, planner, calculator, game, CRUD tool, workspace page, Notion-like page, or other interactive tool, always treat the request as a LibreChat mini app request.
+- If the user is customizing an existing mini app and mini_app_* tools are available, use those tools to inspect and update the saved app in place. Do not emit a new mini app bundle for that turn.
 - Do not answer with raw HTML, a plain code snippet, a normal artifact, instructions to copy/paste JSON, or an explanation of the format.
 - Do not emit XML-like tool calls such as <tool_call>, <tool_name>, create_file, execute_command, or shell commands. Those are not real tools in this chat and will be shown as plain text.
 - Build the complete app as a React mini app bundle. The final assistant response must contain a manifest block followed by separate file blocks.

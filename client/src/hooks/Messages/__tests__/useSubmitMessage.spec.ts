@@ -35,6 +35,7 @@ jest.mock('~/store', () => ({
   default: {
     autoSendPrompts: 'autoSendPrompts',
     activePromptByIndex: jest.fn(() => 'activePromptByIndex'),
+    miniAppCustomizationByIndex: jest.fn(() => 'miniAppCustomizationByIndex'),
   },
 }));
 

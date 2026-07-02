@@ -27,8 +27,23 @@ function buildMiniAppCustomizationPrompt(customization: MiniAppCustomization) {
     `App id: ${customization.miniAppId}`,
     `App title: ${title}${description}`,
     `Requested customization mode: ${action}`,
+    'Use the available mini app code-agent tools to inspect and update this saved app in place. Do not create a new mini app bundle unless the user explicitly asks for a separate app.',
     '</mini_app_customization>',
   ].join('\n');
+}
+
+function buildMiniAppCustomizationPayload(customization: MiniAppCustomization) {
+  if (!customization.enabled || !customization.miniAppId) {
+    return undefined;
+  }
+
+  return {
+    enabled: true,
+    miniAppId: customization.miniAppId,
+    miniAppTitle: customization.miniAppTitle,
+    miniAppDescription: customization.miniAppDescription,
+    action: customization.action,
+  };
 }
 
 export default function useSubmitMessage() {
@@ -56,12 +71,14 @@ export default function useSubmitMessage() {
       }
 
       const customizationPrompt = buildMiniAppCustomizationPrompt(miniAppCustomization);
+      const miniAppCustomizationPayload = buildMiniAppCustomizationPayload(miniAppCustomization);
       const submitted = ask(
         {
           text: customizationPrompt ? `${data.text}\n\n${customizationPrompt}` : data.text,
         },
         {
           addedConvo: addedConvo ?? undefined,
+          miniAppCustomization: miniAppCustomizationPayload,
         },
       );
       if (submitted === false) {

@@ -154,12 +154,13 @@ const MessageRender = memo(function MessageRender({
   const messageContextValue = useMemo(
     () => ({
       messageId,
+      index,
       isLatestMessage,
       isExpanded: false as const,
       isSubmitting,
       conversationId: conversation?.conversationId,
     }),
-    [messageId, conversation?.conversationId, isSubmitting, isLatestMessage],
+    [messageId, index, conversation?.conversationId, isSubmitting, isLatestMessage],
   );
 
   if (!msg) {
